@@ -1,0 +1,9 @@
+[package]
+name = "simboli_thread"
+version = "0.1.0"
+edition = "2024"
+
+[lib]
+src = "./lib.rs"
+
+[dependencies]
