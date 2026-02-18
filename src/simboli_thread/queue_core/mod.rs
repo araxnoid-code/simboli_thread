@@ -1,5 +1,6 @@
 use std::{
-    ptr,
+    hint::spin_loop,
+    ptr::{self, null_mut},
     sync::atomic::{AtomicPtr, AtomicU64, Ordering},
 };
 
@@ -7,7 +8,7 @@ pub struct WaitingTask<F>
 where
     F: Fn() + Send + 'static,
 {
-    id: u128,
+    id: u64,
     task: F,
     next: AtomicPtr<WaitingTask<F>>,
 }
@@ -16,14 +17,24 @@ pub struct QueueCore<F>
 where
     F: Fn() + Send + 'static,
 {
-    // linked_list
+    // primary Stack
+    id_counter: AtomicU64,
     start: AtomicPtr<WaitingTask<F>>,
     end: AtomicPtr<WaitingTask<F>>,
-    len: AtomicU64,
 
-    // swap phase
+    // Swap Stack
     swap_start: AtomicPtr<WaitingTask<F>>,
-    swap_len: AtomicU64,
+    swap_end: AtomicPtr<WaitingTask<F>>,
+}
+
+pub struct TaskList<F>
+where
+    F: Fn() + Send + 'static,
+{
+    start: AtomicPtr<WaitingTask<F>>,
+    end: AtomicPtr<WaitingTask<F>>,
+    len: usize,
+    primary_stack_empty: bool,
 }
 
 impl<F> QueueCore<F>
@@ -34,10 +45,71 @@ where
         Self {
             start: AtomicPtr::new(ptr::null_mut()),
             end: AtomicPtr::new(ptr::null_mut()),
-            len: AtomicU64::new(0),
 
+            id_counter: AtomicU64::new(0),
             swap_start: AtomicPtr::new(ptr::null_mut()),
-            swap_len: AtomicU64::new(0),
+            swap_end: AtomicPtr::new(ptr::null_mut()),
+        }
+    }
+
+    pub fn pop_task_from_primary_stack(&self, len_pop: u32) {
+        let start = self.start.load(Ordering::Acquire);
+        let end = self.end.load(Ordering::Acquire);
+
+        // scanning
+        unsafe {
+            let mut scan_task = start;
+            let mut spinning_handler = false;
+            let mut empty = false;
+            let mut counter = 0;
+            loop {
+                if spinning_handler && !scan_task.is_null() {
+                    spin_loop();
+                }
+
+                if scan_task.is_null() {
+                    if (*scan_task).id == (*end).id {
+                        // end of task list
+                        // self.start.store(null_mut(), Ordering::Release);
+                        // self.end.store(null_mut(), Ordering::Release);
+                        counter += 1;
+                        empty = true;
+                        break;
+                    } else {
+                        spinning_handler = true;
+                        continue;
+                    }
+                } else {
+                    scan_task = (*scan_task).next.load(Ordering::Acquire);
+                    counter += 1;
+                }
+
+                let list = TaskList {
+                    start: AtomicPtr::new(start),
+                    end: AtomicPtr::new(scan_task),
+                    len: counter,
+                    primary_stack_empty: empty,
+                };
+
+                self.start
+                    .swap((*scan_task).next.load(Ordering::Acquire), Ordering::AcqRel);
+                if !empty {
+                    self.start.swap(null_mut(), Ordering::AcqRel);
+                    self.end.swap(null_mut(), Ordering::AcqRel);
+                }
+            }
+        }
+    }
+
+    pub fn swap_to_primary(&self) -> Result<(), &str> {
+        let end = self.swap_end.swap(null_mut(), Ordering::AcqRel);
+        if !end.is_null() {
+            let start = self.swap_start.swap(null_mut(), Ordering::AcqRel);
+            self.start.store(start, Ordering::Release);
+            self.end.store(end, Ordering::Release);
+            Ok(())
+        } else {
+            Err("SWAP STACK KOSONG")
         }
     }
 
@@ -45,28 +117,25 @@ where
         // main thread only focus in swap queue, base on swap start
         // create waiting task
         let waiting_task = WaitingTask {
-            id: uuid::Uuid::new_v4().as_u128(),
+            id: self.id_counter.fetch_add(1, Ordering::Release),
             task,
             next: AtomicPtr::new(ptr::null_mut()),
         };
 
         let waiting_task_ptr = Box::into_raw(Box::new(waiting_task));
 
-        if self.swap_start.load(Ordering::Acquire).is_null() {
-            // start is null, list empty
-            // update swap start
-            self.swap_start.store(waiting_task_ptr, Ordering::Release);
-        } else {
-            // continue the list
-            // update swap start with new waiting task
+        // swap start with new waiting task
+        let pre_start_task = self.swap_start.swap(waiting_task_ptr, Ordering::AcqRel);
+        if !pre_start_task.is_null() {
             unsafe {
-                // swap start with new waiting task
-                let pre_start_task = self.swap_start.swap(waiting_task_ptr, Ordering::AcqRel);
                 // update waiting task with previous start
                 (*waiting_task_ptr)
                     .next
                     .store(pre_start_task, Ordering::Release);
             }
+        } else {
+            // saving end waiting task for spanning validation in thread pool later
+            self.swap_end.store(waiting_task_ptr, Ordering::Release);
         }
     }
 }
