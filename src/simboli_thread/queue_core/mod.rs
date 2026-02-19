@@ -52,11 +52,40 @@ where
         }
     }
 
-    pub fn pop_task_from_primary_stack(&self, len_pop: u32) {
-        let start = self.start.load(Ordering::Acquire);
-        let end = self.end.load(Ordering::Acquire);
+    pub fn pop_task_from_primary_stack(&self, len: u32) {
+        let start_waiting_task = self.start.load(Ordering::Acquire);
+        // let end_waiting_task = self.end.load(Ordering::Acquire);
 
-        // scanning
+        // scanning start from "end"
+        let mut list_task = Vec::new();
+        let mut count = 0;
+        unsafe {
+            loop {
+                let waiting_task = self.end.load(Ordering::Acquire);
+                let next_waiting_task = &(*waiting_task).next.load(Ordering::Acquire);
+                if next_waiting_task.is_null() {
+                    // check, is this last task?
+                    if (*start_waiting_task).id == (**next_waiting_task).id {
+                        // this last task
+                        list_task.push(AtomicPtr::new(waiting_task));
+                        count += 1;
+                        break;
+                    } else {
+                        // waiting
+                        spin_loop();
+                        continue;
+                    };
+                }
+
+                list_task.push(AtomicPtr::new(waiting_task));
+                self.end.store(*next_waiting_task, Ordering::Release);
+                count += 1;
+
+                if count >= len {
+                    break;
+                }
+            }
+        }
     }
 
     pub fn swap_to_primary(&self) -> Result<(), &str> {
