@@ -57,48 +57,6 @@ where
         let end = self.end.load(Ordering::Acquire);
 
         // scanning
-        unsafe {
-            let mut scan_task = start;
-            let mut spinning_handler = false;
-            let mut empty = false;
-            let mut counter = 0;
-            loop {
-                if spinning_handler && !scan_task.is_null() {
-                    spin_loop();
-                }
-
-                if scan_task.is_null() {
-                    if (*scan_task).id == (*end).id {
-                        // end of task list
-                        // self.start.store(null_mut(), Ordering::Release);
-                        // self.end.store(null_mut(), Ordering::Release);
-                        counter += 1;
-                        empty = true;
-                        break;
-                    } else {
-                        spinning_handler = true;
-                        continue;
-                    }
-                } else {
-                    scan_task = (*scan_task).next.load(Ordering::Acquire);
-                    counter += 1;
-                }
-
-                let list = TaskList {
-                    start: AtomicPtr::new(start),
-                    end: AtomicPtr::new(scan_task),
-                    len: counter,
-                    primary_stack_empty: empty,
-                };
-
-                self.start
-                    .swap((*scan_task).next.load(Ordering::Acquire), Ordering::AcqRel);
-                if !empty {
-                    self.start.swap(null_mut(), Ordering::AcqRel);
-                    self.end.swap(null_mut(), Ordering::AcqRel);
-                }
-            }
-        }
     }
 
     pub fn swap_to_primary(&self) -> Result<(), &str> {
@@ -128,10 +86,9 @@ where
         let pre_start_task = self.swap_start.swap(waiting_task_ptr, Ordering::AcqRel);
         if !pre_start_task.is_null() {
             unsafe {
-                // update waiting task with previous start
-                (*waiting_task_ptr)
+                (*pre_start_task)
                     .next
-                    .store(pre_start_task, Ordering::Release);
+                    .store(waiting_task_ptr, Ordering::Release);
             }
         } else {
             // saving end waiting task for spanning validation in thread pool later
