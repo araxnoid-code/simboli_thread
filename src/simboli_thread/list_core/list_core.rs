@@ -4,16 +4,9 @@ use std::{
     sync::atomic::{AtomicPtr, AtomicU64, Ordering},
 };
 
-pub struct WaitingTask<F>
-where
-    F: Fn() + Send + 'static,
-{
-    id: u64,
-    task: F,
-    next: AtomicPtr<WaitingTask<F>>,
-}
+use crate::simboli_thread::list_core::{task_list::TaskList, waiting_task::WaitingTask};
 
-pub struct QueueCore<F>
+pub struct ListCores<F>
 where
     F: Fn() + Send + 'static,
 {
@@ -27,21 +20,11 @@ where
     swap_end: AtomicPtr<WaitingTask<F>>,
 }
 
-pub struct TaskList<F>
+impl<F> ListCores<F>
 where
     F: Fn() + Send + 'static,
 {
-    start: AtomicPtr<WaitingTask<F>>,
-    end: AtomicPtr<WaitingTask<F>>,
-    len: usize,
-    primary_stack_empty: bool,
-}
-
-impl<F> QueueCore<F>
-where
-    F: Fn() + Send + 'static,
-{
-    pub fn init() -> QueueCore<F> {
+    pub fn init() -> ListCores<F> {
         Self {
             start: AtomicPtr::new(ptr::null_mut()),
             end: AtomicPtr::new(ptr::null_mut()),
@@ -52,22 +35,31 @@ where
         }
     }
 
-    pub fn pop_task_from_primary_stack(&self, len: u32) {
+    pub fn pop_task_from_primary_stack(&self, len: u32) -> Result<TaskList<F>, &str> {
         let start_waiting_task = self.start.load(Ordering::Acquire);
-        // let end_waiting_task = self.end.load(Ordering::Acquire);
 
         // scanning start from "end"
         let mut list_task = Vec::new();
-        let mut count = 0;
+        let mut count: u64 = 0;
         unsafe {
             loop {
                 let waiting_task = self.end.load(Ordering::Acquire);
-                let next_waiting_task = &(*waiting_task).next.load(Ordering::Acquire);
+                if waiting_task.is_null() {
+                    return Err("Primary list empty");
+                }
+
+                let next_waiting_task = (*waiting_task).next.load(Ordering::Acquire);
                 if next_waiting_task.is_null() {
                     // check, is this last task?
-                    if (*start_waiting_task).id == (**next_waiting_task).id {
+                    if start_waiting_task == waiting_task {
                         // this last task
+                        // store the task
                         list_task.push(AtomicPtr::new(waiting_task));
+                        // update start
+                        self.start.store(null_mut(), Ordering::Release);
+                        // update end
+                        self.end.store(null_mut(), Ordering::Release);
+                        // update counter
                         count += 1;
                         break;
                     } else {
@@ -77,15 +69,24 @@ where
                     };
                 }
 
+                // store the task
                 list_task.push(AtomicPtr::new(waiting_task));
-                self.end.store(*next_waiting_task, Ordering::Release);
+                // update end
+                self.end.store(next_waiting_task, Ordering::Release);
                 count += 1;
 
-                if count >= len {
+                if count >= len as u64 {
                     break;
                 }
             }
         }
+
+        let list_task = TaskList {
+            list: list_task,
+            count,
+        };
+
+        Ok(list_task)
     }
 
     pub fn swap_to_primary(&self) -> Result<(), &str> {
