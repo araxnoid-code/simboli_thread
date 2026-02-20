@@ -6,7 +6,7 @@ use std::{
 
 use crate::simboli_thread::list_core::{task_list::TaskList, waiting_task::WaitingTask};
 
-pub struct ListCores<F>
+pub struct ListCore<F>
 where
     F: Fn() + Send + 'static,
 {
@@ -20,11 +20,11 @@ where
     swap_end: AtomicPtr<WaitingTask<F>>,
 }
 
-impl<F> ListCores<F>
+impl<F> ListCore<F>
 where
     F: Fn() + Send + 'static,
 {
-    pub fn init() -> ListCores<F> {
+    pub fn init() -> ListCore<F> {
         Self {
             start: AtomicPtr::new(ptr::null_mut()),
             end: AtomicPtr::new(ptr::null_mut()),
@@ -35,11 +35,21 @@ where
         }
     }
 
-    pub fn pop_task_from_primary_stack(&self, len: u32) -> Result<TaskList<F>, &str> {
+    pub fn is_primary_list_empty(&self) -> bool {
+        self.end.load(Ordering::Acquire).is_null()
+    }
+
+    pub fn get_waiting_task_from_primary_stack<const N: usize>(
+        &self,
+        len: u32,
+    ) -> Result<TaskList<F, N>, &str> {
         let start_waiting_task = self.start.load(Ordering::Acquire);
 
         // scanning start from "end"
         let mut list_task = Vec::new();
+        for _ in 0..N {
+            list_task.push(AtomicPtr::new(null_mut()));
+        }
         let mut count: u64 = 0;
         unsafe {
             loop {
@@ -54,7 +64,9 @@ where
                     if start_waiting_task == waiting_task {
                         // this last task
                         // store the task
-                        list_task.push(AtomicPtr::new(waiting_task));
+                        // // start from bottom
+                        list_task[(N - 1) - count as usize] = AtomicPtr::new(waiting_task);
+                        // list_task.push(AtomicPtr::new(waiting_task));
                         // update start
                         self.start.store(null_mut(), Ordering::Release);
                         // update end
@@ -70,7 +82,9 @@ where
                 }
 
                 // store the task
-                list_task.push(AtomicPtr::new(waiting_task));
+                // // start from bottom
+                list_task[(N - 1) - count as usize] = AtomicPtr::new(waiting_task);
+                // list_task.push(AtomicPtr::new(waiting_task));
                 // update end
                 self.end.store(next_waiting_task, Ordering::Release);
                 count += 1;
@@ -82,8 +96,10 @@ where
         }
 
         let list_task = TaskList {
-            list: list_task,
+            list: list_task.try_into().unwrap(),
             count,
+            top: (N as u64) - count,
+            bottom: N as u64,
         };
 
         Ok(list_task)
