@@ -6,11 +6,10 @@ pub struct SimboliThread<F, const N: usize, const Q: usize>
 where
     F: Fn() + 'static + Send,
 {
-    // List
+    // List Core
     list_core: Arc<ListCore<F>>,
-    // thread pool
+    // thread pool Core
     thread_pool_core: ThreadPoolCore<F, N, Q>,
-    // threads
 }
 
 impl<F, const N: usize, const Q: usize> SimboliThread<F, N, Q>

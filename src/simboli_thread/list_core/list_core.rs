@@ -1,7 +1,10 @@
 use std::{
     hint::spin_loop,
     ptr::{self, null_mut},
-    sync::atomic::{AtomicPtr, AtomicU64, Ordering},
+    sync::{
+        Arc,
+        atomic::{AtomicPtr, AtomicU64, Ordering},
+    },
 };
 
 use crate::simboli_thread::list_core::{task_list::TaskList, waiting_task::WaitingTask};
@@ -14,6 +17,9 @@ where
     id_counter: AtomicU64,
     start: AtomicPtr<WaitingTask<F>>,
     end: AtomicPtr<WaitingTask<F>>,
+
+    // handler
+    pub(crate) in_task: Arc<AtomicU64>,
 
     // Swap Stack
     swap_start: AtomicPtr<WaitingTask<F>>,
@@ -28,6 +34,8 @@ where
         Self {
             start: AtomicPtr::new(ptr::null_mut()),
             end: AtomicPtr::new(ptr::null_mut()),
+
+            in_task: Arc::new(AtomicU64::new(0)),
 
             id_counter: AtomicU64::new(0),
             swap_start: AtomicPtr::new(ptr::null_mut()),
@@ -119,6 +127,8 @@ where
 
     pub fn task_from_main_thread(&self, task: F) {
         // main thread only focus in swap queue, base on swap start
+        // update in_task handler
+        self.in_task.fetch_add(1, Ordering::SeqCst);
         // create waiting task
         let waiting_task = WaitingTask {
             id: self.id_counter.fetch_add(1, Ordering::Release),

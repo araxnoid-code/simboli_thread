@@ -18,10 +18,12 @@ where
 {
     // thread pool
     pub(crate) reprt_handler: Arc<AtomicBool>,
-    pub(crate) active_counter: Arc<AtomicU64>,
     pub(crate) queue_size: usize,
     pub(crate) pool: Arc<AtomicPtr<Vec<(Option<JoinHandle<()>>, Arc<ThreadUnit<F, Q>>)>>>,
     pub(crate) join_flag: Arc<AtomicBool>,
+
+    // handler
+    pub(crate) done_task: Arc<AtomicU64>,
 
     // list core
     list_core: Arc<ListCore<F>>,
@@ -37,7 +39,8 @@ where
             N,
         )))));
         let join_flag = Arc::new(AtomicBool::new(false));
-        let active_counter = Arc::new(AtomicU64::new((1 << N) - 1));
+
+        let done_task = Arc::new(AtomicU64::new(0));
 
         let start_handler = Arc::new(AtomicBool::new(false));
 
@@ -46,8 +49,9 @@ where
             let tx_clone = tx.clone();
             let start_handler_clone = start_handler.clone();
 
+            let done_task_clone = done_task.clone();
+
             let pool_clone = pool.clone();
-            let active_counter_clone = active_counter.clone();
             let join_flag_clone = join_flag.clone();
             let list_core_clone = list_core.clone();
             let share_reprt_handler = reprt_handler.clone();
@@ -58,8 +62,8 @@ where
                         id,
                         N,
                         share_reprt_handler,
-                        active_counter_clone,
                         join_flag_clone,
+                        done_task_clone,
                         pool_clone,
                         list_core_clone,
                     )
@@ -93,25 +97,24 @@ where
         Self {
             list_core: list_core,
             pool: pool,
-            active_counter,
             queue_size: Q,
             reprt_handler: reprt_handler,
             join_flag,
+            done_task,
         }
     }
 
     pub fn join(&self) {
-        let mut count_counter = 0;
-        loop {
-            let counter = (*self.active_counter).load(Ordering::SeqCst);
-            if counter == 0 && count_counter > 5 {
-                break;
-            } else if counter == 0 {
-                count_counter += 1;
-            }
-            spin_loop();
-        }
         unsafe {
+            // check, all task done
+            loop {
+                if self.list_core.in_task.load(Ordering::SeqCst)
+                    <= self.done_task.load(Ordering::SeqCst)
+                {
+                    break;
+                }
+            }
+
             self.join_flag.store(true, Ordering::Release);
             for (join_handle, _) in (*self.pool.load(Ordering::Acquire)).iter_mut() {
                 join_handle.take().unwrap().join().unwrap();

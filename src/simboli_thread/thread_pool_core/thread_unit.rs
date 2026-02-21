@@ -28,10 +28,10 @@ where
     pub(crate) top: AtomicUsize,
     pub(crate) bottom: AtomicUsize,
     // // flag
-    pub(crate) active_counter: Arc<AtomicU64>,
     pub(crate) threads_active: AtomicU64,
     pub(crate) empty_flag: AtomicBool,
     pub(crate) join_flag: Arc<AtomicBool>,
+    pub(crate) done_task: Arc<AtomicU64>,
 
     // share
     // // thread_pool
@@ -51,8 +51,8 @@ where
         id: usize,
         total_threads: usize,
         reprt_handler: Arc<AtomicBool>,
-        active_counter: Arc<AtomicU64>,
         join_flag: Arc<AtomicBool>,
+        done_task: Arc<AtomicU64>,
         pool: Arc<AtomicPtr<Vec<(Option<JoinHandle<()>>, Arc<ThreadUnit<F, Q>>)>>>,
         list_core: Arc<ListCore<F>>,
     ) -> Result<ThreadUnit<F, Q>, &'static str> {
@@ -80,10 +80,10 @@ where
             bottom: AtomicUsize::new(0),
             top: AtomicUsize::new(0),
 
-            active_counter: active_counter,
             threads_active: AtomicU64::new(0),
             empty_flag: AtomicBool::new(true),
             join_flag,
+            done_task,
 
             reprt_handler,
             pool,
@@ -113,11 +113,7 @@ where
 
                 // empty handling
                 // // update flag
-                let pre_status = self.empty_flag.swap(true, Ordering::SeqCst);
-                if !pre_status {
-                    let target = !(1_u64 << self.id);
-                    self.active_counter.fetch_and(target, Ordering::SeqCst);
-                }
+                self.empty_flag.store(true, Ordering::SeqCst);
 
                 // // check, any threads have activities on this thread?
                 if self.threads_active.load(Ordering::SeqCst) > 0 {
@@ -183,9 +179,6 @@ where
                     (*self.reprt_handler).store(true, Ordering::SeqCst);
                     // update empty_flag
                     self.empty_flag.store(false, Ordering::SeqCst);
-
-                    self.active_counter
-                        .fetch_or(1_u64 << self.id, Ordering::SeqCst);
 
                     spin_loop();
                 } else {
@@ -322,9 +315,6 @@ where
 
                         // close the door
                         target_thread.threads_active.fetch_sub(1, Ordering::SeqCst);
-                        self.active_counter
-                            .fetch_or(1_u64 << self.id, Ordering::SeqCst);
-
                         spin_loop();
                     }
                 }
@@ -348,6 +338,7 @@ where
                         // println!("id {} mengeksekusi something", self.id);
                         (task.task)();
                         drop(task);
+                        self.done_task.fetch_add(1, Ordering::SeqCst);
                     }
 
                     // next index to top
