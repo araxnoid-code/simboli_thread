@@ -18,6 +18,9 @@ konsep konsep utama yang digunakan pada `simboli_thread`
 
 [main_concept.md](./main_concept.md)
 
+## Changelog
+[changelog.md](./changelog.md)
+
 ## Starting
 ### Installation
 Run the following Cargo command in your project directory:
