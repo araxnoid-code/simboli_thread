@@ -14,7 +14,7 @@
 This is just a trial project, there will most likely be a lot of bugs and there may not be any updates in the future.
 
 ## Main Concept
-the main concepts used in `thread_symbols`
+the main concepts used in `simboli_thread`
 
 [main_concept.md](https://github.com/araxnoid-code/simboli_thread/blob/main/main_concept.md)
 
