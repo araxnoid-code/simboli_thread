@@ -1,17 +1,33 @@
 use std::{
     collections::HashMap,
     fmt::Debug,
-    sync::{Arc, atomic::AtomicPtr},
+    sync::{
+        Arc, Mutex,
+        atomic::{AtomicPtr, AtomicUsize, Ordering},
+    },
+    thread,
+    time::Duration,
 };
 
-fn main() {
-    // test(|| {});
-    HashMap::<usize, String>::new();
-}
+use simboli_thread::{SimboliThread, my_test};
 
-// fn test<F>(f: F)
-// where
-//     F: Fn() + Debug + Send + 'static,
-// {
-//     println!("{:?}", f)
-// }
+fn main() {
+    let simboli_thread = SimboliThread::<_, 8, 32>::init();
+
+    let counter = Arc::new(Mutex::new(0));
+    for i in 0..1000 {
+        let counter_clone = counter.clone();
+        simboli_thread.spawn_task(move || {
+            // if let Ok(lock) = counter_clone.lock().as_mut() {
+            // **lock += 1;
+            // println!("done counter => {}", lock);
+            // }
+            // println!("task {} done", i);
+        });
+    }
+
+    // println!("done");
+
+    loop {}
+    // simboli_thread.join();
+}

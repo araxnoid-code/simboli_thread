@@ -113,7 +113,7 @@ where
             self.end.store(end, Ordering::Release);
             Ok(())
         } else {
-            Err("SWAP STACK KOSONG")
+            Err("SWAP STACK EMPTY")
         }
     }
 
