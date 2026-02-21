@@ -32,12 +32,15 @@ where
 {
     pub fn init() -> ListCore<F> {
         Self {
+            // primary Stack
+            id_counter: AtomicU64::new(0),
             start: AtomicPtr::new(ptr::null_mut()),
             end: AtomicPtr::new(ptr::null_mut()),
 
+            // handler
             in_task: Arc::new(AtomicU64::new(0)),
 
-            id_counter: AtomicU64::new(0),
+            // Swap Stack
             swap_start: AtomicPtr::new(ptr::null_mut()),
             swap_end: AtomicPtr::new(ptr::null_mut()),
         }

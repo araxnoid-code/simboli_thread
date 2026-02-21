@@ -1,6 +1,6 @@
 use std::{
     hint::spin_loop,
-    ptr::null_mut,
+    ptr::{null, null_mut},
     sync::{
         Arc,
         atomic::{AtomicBool, AtomicPtr, AtomicU32, AtomicU64, AtomicUsize, Ordering},
@@ -47,6 +47,27 @@ impl<F, const Q: usize> ThreadUnit<F, Q>
 where
     F: Fn() + 'static + Send,
 {
+    pub fn clean(&self) {
+        unsafe {
+            let runner_ptr = self.running.swap(null_mut(), Ordering::AcqRel);
+            if !runner_ptr.is_null() {
+                let runner = Box::from_raw(runner_ptr);
+                drop(runner);
+            }
+
+            let queue_ptr = self.queue.swap(null_mut(), Ordering::AcqRel);
+            if !queue_ptr.is_null() {
+                let queue = Box::from_raw(queue_ptr);
+                for task in queue.into_iter() {
+                    let task_ptr = task.swap(null_mut(), Ordering::AcqRel);
+                    if !task_ptr.is_null() {
+                        drop(Box::from_raw(task_ptr));
+                    }
+                }
+            }
+        }
+    }
+
     pub fn init(
         id: usize,
         total_threads: usize,
@@ -335,7 +356,6 @@ where
                     if !waiting_task.is_null() {
                         // running the task
                         let task = Box::from_raw(waiting_task);
-                        // println!("id {} mengeksekusi something", self.id);
                         (task.task)();
                         drop(task);
                         self.done_task.fetch_add(1, Ordering::SeqCst);

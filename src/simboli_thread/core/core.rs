@@ -30,14 +30,13 @@ where
         self.list_core.task_from_main_thread(f);
     }
 
+    /// joining threads in thread pools, does not ensure that all tasks have completed execution before the thread stops
+    pub fn join_directly(self) {
+        self.thread_pool_core.join_directly();
+    }
+
+    /// join threads in thread pools, but ensure all tasks have completed execution before the thread stops
     pub fn join(self) {
         self.thread_pool_core.join();
     }
-}
-
-pub fn my_test<F>(f: F)
-where
-    F: Fn() + Send + 'static,
-{
-    f();
 }
