@@ -9,7 +9,7 @@ use std::{
     time::Duration,
 };
 
-use crate::{ListCore, WaitingTask};
+use crate::{ListCore, WaitingTask, simboli_thread::thread_pool_core::parameter::ThreadPatemeter};
 
 pub struct ThreadUnit<F, const N: usize>
 where
@@ -22,6 +22,7 @@ where
     // // engine
     pub(crate) spawn: Option<JoinHandle<()>>,
     pub(crate) running: AtomicPtr<WaitingTask<F>>,
+    pub(crate) parameter: Option<ThreadPatemeter<F, N>>,
     // // storage
     pub(crate) queue: AtomicPtr<[AtomicPtr<WaitingTask<F>>; N]>,
     pub(crate) batch: u32,
@@ -32,6 +33,10 @@ where
     pub(crate) empty_flag: AtomicBool,
     pub(crate) join_flag: Arc<AtomicBool>,
     pub(crate) done_task: Arc<AtomicU64>,
+    // group
+    pub(crate) reprt_group_handler: Arc<AtomicBool>,
+    pub(crate) start_group: AtomicPtr<WaitingTask<F>>,
+    pub(crate) end_group: AtomicPtr<WaitingTask<F>>,
 
     // share
     // // thread_pool
@@ -76,6 +81,7 @@ where
         done_task: Arc<AtomicU64>,
         pool: Arc<AtomicPtr<Vec<(Option<JoinHandle<()>>, Arc<ThreadUnit<F, Q>>)>>>,
         list_core: Arc<ListCore<F>>,
+        reprt_group_handler: Arc<AtomicBool>,
     ) -> Result<ThreadUnit<F, Q>, &'static str> {
         let mut queue_vector = Vec::with_capacity(Q);
         for _ in 0..Q {
@@ -93,6 +99,7 @@ where
             id,
             xorshift_seed: AtomicU32::new(1),
 
+            parameter: None,
             spawn: None,
             running: AtomicPtr::new(null_mut()),
 
@@ -110,8 +117,17 @@ where
             pool,
             total_threads,
 
+            reprt_group_handler,
+            start_group: AtomicPtr::new(null_mut()),
+            end_group: AtomicPtr::new(null_mut()),
+
             list_core,
         })
+    }
+
+    pub fn set_thread_parameter(&self, arc_thread: Arc<Self>) {
+        let parameter = ThreadPatemeter { thread: arc_thread };
+        // self.parameter = Some(parameter);
     }
 
     fn xorshift(&self) -> u32 {
@@ -356,6 +372,7 @@ where
                     if !waiting_task.is_null() {
                         // running the task
                         let task = Box::from_raw(waiting_task);
+
                         (task.task)();
                         drop(task);
                         self.done_task.fetch_add(1, Ordering::SeqCst);

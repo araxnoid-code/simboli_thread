@@ -32,8 +32,6 @@ where
     F: Fn() + 'static + Send,
 {
     pub fn init(list_core: Arc<ListCore<F>>) -> ThreadPoolCore<F, N, Q> {
-        // main thread pool
-
         // handler
         let reprt_handler = Arc::new(AtomicBool::new(true));
         let join_flag = Arc::new(AtomicBool::new(false));
@@ -43,6 +41,11 @@ where
         let pool = Arc::new(AtomicPtr::new(Box::into_raw(Box::new(Vec::with_capacity(
             N,
         )))));
+
+        // group
+        // // default for now
+        let size = 2;
+        let mut reprt_group_handler = Arc::new(AtomicBool::new(true));
 
         // sync, ensure all threads are initialized before running
         let start_handler = Arc::new(AtomicBool::new(false));
@@ -59,6 +62,12 @@ where
             let done_task_clone = done_task.clone();
             let join_flag_clone = join_flag.clone();
             let reprt_handler_clone = reprt_handler.clone();
+
+            // reprt_group_handler, update every 2
+            if id % 2 == 0 {
+                reprt_group_handler = Arc::new(AtomicBool::new(false));
+            }
+            let reprt_group_handler_clone = reprt_group_handler.clone();
 
             // sync clone
             let start_handler_clone = start_handler.clone();
@@ -77,6 +86,7 @@ where
                         done_task_clone,
                         pool_clone,
                         list_core_clone,
+                        reprt_group_handler_clone,
                     )
                     .unwrap(),
                 );
