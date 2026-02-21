@@ -1,7 +1,10 @@
 [package]
 name = "simboli_thread"
-version = "0.1.0"
+version = "0.0.1"
 edition = "2024"
+description = "Thread Pool Management"
+keywords = ["scheduler", "parallel", "framework", "lock-free", "runtime"]
+license = "Apache-2.0"
 
 [lib]
 src = "./lib.rs"
