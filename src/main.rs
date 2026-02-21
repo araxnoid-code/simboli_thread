@@ -6,28 +6,49 @@ use std::{
         atomic::{AtomicPtr, AtomicUsize, Ordering},
     },
     thread,
-    time::Duration,
+    time::{self, Duration, UNIX_EPOCH},
 };
 
 use simboli_thread::{SimboliThread, my_test};
 
 fn main() {
+    let tick = time::SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_millis();
+
     let simboli_thread = SimboliThread::<_, 8, 32>::init();
 
-    let counter = Arc::new(Mutex::new(0));
-    for i in 0..1000 {
+    let counter = Arc::new(AtomicUsize::new(0));
+    for i in 0..100 {
+        // let random_delay = if i % 2 == 0 { 10 } else { 10 };
         let counter_clone = counter.clone();
         simboli_thread.spawn_task(move || {
-            // if let Ok(lock) = counter_clone.lock().as_mut() {
-            // **lock += 1;
-            // println!("done counter => {}", lock);
-            // }
-            // println!("task {} done", i);
+            // thread::sleep(Duration::from_millis(25));
+            let total = counter_clone.fetch_add(1, Ordering::SeqCst);
+            // println!("total {}", total);
         });
     }
 
-    // println!("done");
+    // for i in 0..10000 {
+    //     let counter_clone = counter.clone();
+    //     simboli_thread.spawn_task(move || {
+    //         let d = i % 5;
+    //         thread::sleep(Duration::from_millis(d));
+    //         counter_clone.fetch_add(1, Ordering::SeqCst);
+    //     });
+    // }
 
-    loop {}
-    // simboli_thread.join();
+    simboli_thread.join();
+
+    let tock = time::SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_millis();
+
+    println!(
+        "done with {} and {}ms",
+        counter.load(Ordering::SeqCst),
+        tock - tick
+    );
 }

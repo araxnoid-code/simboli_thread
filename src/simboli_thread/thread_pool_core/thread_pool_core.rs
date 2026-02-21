@@ -101,20 +101,21 @@ where
     }
 
     pub fn join(&self) {
+        let mut count_counter = 0;
         loop {
-            // let number = (*self.active_counter).load(Ordering::Acquire);
-            // println!("{:b}", number);
-            // spin_loop();
-            // thread::sleep(Duration::from_millis(500));
-            // break;
+            let counter = (*self.active_counter).load(Ordering::SeqCst);
+            if counter == 0 && count_counter > 5 {
+                break;
+            } else if counter == 0 {
+                count_counter += 1;
+            }
+            spin_loop();
         }
-        // self.join_flag.store(true, Ordering::Release);
-        // unsafe {
-        //     self.list_core.swap_to_primary().unwrap_unchecked();
-        //     if let Ok(_) = self.list_core.swap_to_primary() {};
-        //     for (join_handle, _) in (*self.pool.load(Ordering::Acquire)).iter_mut() {
-        //         join_handle.take().unwrap().join().unwrap();
-        //     }
-        // }
+        unsafe {
+            self.join_flag.store(true, Ordering::Release);
+            for (join_handle, _) in (*self.pool.load(Ordering::Acquire)).iter_mut() {
+                join_handle.take().unwrap().join().unwrap();
+            }
+        }
     }
 }

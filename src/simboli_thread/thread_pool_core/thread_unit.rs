@@ -5,7 +5,8 @@ use std::{
         Arc,
         atomic::{AtomicBool, AtomicPtr, AtomicU32, AtomicU64, AtomicUsize, Ordering},
     },
-    thread::JoinHandle,
+    thread::{self, JoinHandle},
+    time::Duration,
 };
 
 use crate::{ListCore, WaitingTask};
@@ -67,15 +68,6 @@ where
         ));
         let local_queue = AtomicPtr::new(queue_ptr);
 
-        //
-        // unsafe {
-        //     println!("initial thread id {}:", id);
-        //     println!("size queue: {}", Q);
-        //     println!("thread queue: {:?}", *local_queue.load(Ordering::Acquire));
-        //     println!();
-        // }
-        //
-
         Ok(ThreadUnit {
             id,
             xorshift_seed: AtomicU32::new(1),
@@ -113,24 +105,29 @@ where
     pub fn running(&self) {
         loop {
             // is local queue empty?
-            // println!(
-            //     " >>> id {} have top: {}, end {}",
-            //     self.id,
-            //     self.top.load(Ordering::Acquire),
-            //     self.bottom.load(Ordering::Acquire)
-            // );
             if self.top.load(Ordering::Acquire) >= self.bottom.load(Ordering::Acquire) {
+                // check join
+                if self.join_flag.load(Ordering::SeqCst) {
+                    break;
+                }
+
                 // empty handling
                 // // update flag
-                self.empty_flag.store(true, Ordering::SeqCst);
+                let pre_status = self.empty_flag.swap(true, Ordering::SeqCst);
+                if !pre_status {
+                    let target = !(1_u64 << self.id);
+                    self.active_counter.fetch_and(target, Ordering::SeqCst);
+                }
 
                 // // check, any threads have activities on this thread?
                 if self.threads_active.load(Ordering::SeqCst) > 0 {
                     // activities detected
                     spin_loop();
+                    continue;
                 };
                 // // check representative thread handler
                 let is_representative = (*self.reprt_handler).swap(false, Ordering::SeqCst);
+
                 if is_representative {
                     // now, this thread as representative thread
                     // // check primary list
@@ -165,11 +162,11 @@ where
 
                     // update local queue
                     // // check twice to ensure, any threads have activities on this thread?
-                    if self.threads_active.load(Ordering::SeqCst) > 0 {
-                        // activities detected
+                    while self.threads_active.load(Ordering::SeqCst) > 0 {
                         spin_loop();
                         continue;
-                    };
+                    }
+
                     let update_candidate_ptr = Box::into_raw(Box::new(list_waiting_task.list));
                     let old_addr = self.queue.swap(update_candidate_ptr, Ordering::AcqRel);
                     unsafe {
@@ -186,6 +183,11 @@ where
                     (*self.reprt_handler).store(true, Ordering::SeqCst);
                     // update empty_flag
                     self.empty_flag.store(false, Ordering::SeqCst);
+
+                    self.active_counter
+                        .fetch_or(1_u64 << self.id, Ordering::SeqCst);
+
+                    spin_loop();
                 } else {
                     // if no, be steal mode
                     unsafe {
@@ -200,10 +202,10 @@ where
                         };
 
                         // add activities(knoking the door) to target thread
-                        target_thread.threads_active.fetch_add(1, Ordering::Release);
+                        target_thread.threads_active.fetch_add(1, Ordering::SeqCst);
                         // is thread able to steal
                         if target_thread.empty_flag.load(Ordering::SeqCst) {
-                            // this target tree empty
+                            // this target queue empty
                             // close the door
                             target_thread.threads_active.fetch_sub(1, Ordering::SeqCst);
                             spin_loop();
@@ -256,7 +258,7 @@ where
                         };
 
                         // get task
-                        // scanning start from "end"
+                        // // scanning start from "end"
                         // // create template
                         let mut list_waiting_task = Vec::new();
                         for _ in 0..Q {
@@ -266,7 +268,7 @@ where
                         let mut list_waiting_task: [AtomicPtr<WaitingTask<F>>; Q] =
                             list_waiting_task.try_into().unwrap();
 
-                        // check every task
+                        // // check every task
                         let mut out_of_index_counter = false;
                         let mut count = 0;
                         for index in top..new_top {
@@ -290,7 +292,7 @@ where
                             count += 1;
                         }
 
-                        // out of index?
+                        // // out of index?
                         if out_of_index_counter {
                             // out of index, mean the range not valid
                             // close the door
@@ -315,13 +317,14 @@ where
                         self.top.store(Q - count, Ordering::Release);
                         self.bottom.store(Q, Ordering::Release);
 
-                        // release representative thread
-                        (*self.reprt_handler).store(true, Ordering::SeqCst);
                         // update empty_flag
                         self.empty_flag.store(false, Ordering::SeqCst);
 
                         // close the door
                         target_thread.threads_active.fetch_sub(1, Ordering::SeqCst);
+                        self.active_counter
+                            .fetch_or(1_u64 << self.id, Ordering::SeqCst);
+
                         spin_loop();
                     }
                 }
