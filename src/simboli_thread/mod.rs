@@ -8,4 +8,4 @@ pub use list_core::{ListCore, WaitingTask};
 
 // thread pool core
 mod thread_pool_core;
-pub use thread_pool_core::ThreadPoolCore;
+pub use thread_pool_core::{ThreadPoolCore, ThreadUnit};

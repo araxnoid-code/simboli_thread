@@ -12,7 +12,7 @@ use crate::{ListCore, simboli_thread::thread_pool_core::thread_unit::ThreadUnit}
 
 pub struct ThreadPoolCore<F, const N: usize, const Q: usize>
 where
-    F: Fn() + 'static + Send,
+    F: Fn(&ThreadUnit<F, Q>) + 'static + Send,
 {
     // main thread pool
     pub(crate) queue_size: usize,
@@ -24,14 +24,14 @@ where
     pub(crate) join_flag: Arc<AtomicBool>,
 
     // list core
-    list_core: Arc<ListCore<F>>,
+    list_core: Arc<ListCore<F, Q>>,
 }
 
 impl<F, const N: usize, const Q: usize> ThreadPoolCore<F, N, Q>
 where
-    F: Fn() + 'static + Send,
+    F: Fn(&ThreadUnit<F, Q>) + 'static + Send,
 {
-    pub fn init(list_core: Arc<ListCore<F>>) -> ThreadPoolCore<F, N, Q> {
+    pub fn init(list_core: Arc<ListCore<F, Q>>) -> ThreadPoolCore<F, N, Q> {
         // handler
         let reprt_handler = Arc::new(AtomicBool::new(true));
         let join_flag = Arc::new(AtomicBool::new(false));

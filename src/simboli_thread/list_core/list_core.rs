@@ -7,30 +7,33 @@ use std::{
     },
 };
 
-use crate::simboli_thread::list_core::{task_list::TaskList, waiting_task::WaitingTask};
+use crate::{
+    ThreadUnit,
+    simboli_thread::list_core::{task_list::TaskList, waiting_task::WaitingTask},
+};
 
-pub struct ListCore<F>
+pub struct ListCore<F, const Q: usize>
 where
-    F: Fn() + Send + 'static,
+    F: Fn(&ThreadUnit<F, Q>) + Send + 'static,
 {
     // primary Stack
     id_counter: AtomicU64,
-    start: AtomicPtr<WaitingTask<F>>,
-    end: AtomicPtr<WaitingTask<F>>,
+    start: AtomicPtr<WaitingTask<F, Q>>,
+    end: AtomicPtr<WaitingTask<F, Q>>,
 
     // handler
     pub(crate) in_task: Arc<AtomicU64>,
 
     // Swap Stack
-    swap_start: AtomicPtr<WaitingTask<F>>,
-    swap_end: AtomicPtr<WaitingTask<F>>,
+    swap_start: AtomicPtr<WaitingTask<F, Q>>,
+    swap_end: AtomicPtr<WaitingTask<F, Q>>,
 }
 
-impl<F> ListCore<F>
+impl<F, const Q: usize> ListCore<F, Q>
 where
-    F: Fn() + Send + 'static,
+    F: Fn(&ThreadUnit<F, Q>) + Send + 'static,
 {
-    pub fn init() -> ListCore<F> {
+    pub fn init() -> ListCore<F, Q> {
         Self {
             // primary Stack
             id_counter: AtomicU64::new(0),
@@ -53,7 +56,7 @@ where
     pub fn get_waiting_task_from_primary_stack<const N: usize>(
         &self,
         len: u32,
-    ) -> Result<TaskList<F, N>, &str> {
+    ) -> Result<TaskList<F, N, Q>, &str> {
         let start_waiting_task = self.start.load(Ordering::Acquire);
 
         // scanning start from "end"

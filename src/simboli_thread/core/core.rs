@@ -1,23 +1,23 @@
 use std::sync::Arc;
 
-use crate::{ListCore, ThreadPoolCore};
+use crate::{ListCore, ThreadPoolCore, ThreadUnit};
 
 pub struct SimboliThread<F, const N: usize, const Q: usize>
 where
-    F: Fn() + 'static + Send,
+    F: Fn(&ThreadUnit<F, Q>) + 'static + Send,
 {
     // List Core
-    list_core: Arc<ListCore<F>>,
+    list_core: Arc<ListCore<F, Q>>,
     // thread pool Core
     thread_pool_core: ThreadPoolCore<F, N, Q>,
 }
 
 impl<F, const N: usize, const Q: usize> SimboliThread<F, N, Q>
 where
-    F: Fn() + 'static + Send,
+    F: Fn(&ThreadUnit<F, Q>) + 'static + Send,
 {
     pub fn init() -> SimboliThread<F, N, Q> {
-        let list_core = Arc::new(ListCore::<F>::init());
+        let list_core = Arc::new(ListCore::<F, Q>::init());
         let thread_pool_core = ThreadPoolCore::<F, N, Q>::init(list_core.clone());
 
         Self {
