@@ -8,13 +8,13 @@
 </div>
 
 ## About
-`simboli_thread`, thread pool management yang ditulis di rust.
+`simboli_thread`, thread pool management written in rust.
 
 ## Warning
-ini hanyalah project coba coba, kemungkinan besar akan banyak bug dan juga mungkin saja tidak akan ada update kedepannya.
+This is just a trial project, there will most likely be a lot of bugs and there may not be any updates in the future.
 
 ## Main Concept
-konsep konsep utama yang digunakan pada `simboli_thread`
+the main concepts used in `thread_symbols`
 
 [main_concept.md](./main_concept.md)
 
