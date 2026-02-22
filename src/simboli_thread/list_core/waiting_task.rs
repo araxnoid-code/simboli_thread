@@ -1,10 +1,12 @@
-use std::sync::atomic::AtomicPtr;
+use std::sync::{Arc, atomic::AtomicPtr};
 
-pub struct WaitingTask<F>
+pub struct WaitingTask<F, T>
 where
-    F: Fn() + Send + 'static,
+    F: Fn() -> T + Send + 'static,
+    T: 'static,
 {
     pub(crate) id: u64,
     pub(crate) task: F,
-    pub(crate) next: AtomicPtr<WaitingTask<F>>,
+    pub(crate) next: AtomicPtr<WaitingTask<F, T>>,
+    pub(crate) waiting_return_ptr: &'static AtomicPtr<T>,
 }

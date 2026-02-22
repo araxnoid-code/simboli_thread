@@ -1,18 +1,22 @@
-fn main() {
-    let slot = 2_u32;
-    let data = 8_u32;
+use std::{ptr::null_mut, sync::atomic::AtomicPtr};
 
-    let mark = !((1 << slot) - 1);
-    let result = data & mark;
+use simboli_thread::SimboliThread;
 
-    println!("{:032b}", data);
-    println!("{:032b}", mark);
-    println!("{:032b}", result);
-    println!("index: {}", result);
+#[derive(Debug)]
+enum MyOutput {
+    number(String),
+    Int(i32),
+    None,
 }
 
-fn my_test<F>(f: F)
-where
-    F: Fn(&i32) + 'static + Send,
-{
+fn main() {
+    let thread_pool = SimboliThread::<_, MyOutput, 8, 32>::init();
+
+    let mut out = thread_pool.spawn_task(|| MyOutput::number("hello world".to_string()));
+
+    let my_out = out.block();
+
+    drop(out);
+
+    thread_pool.join();
 }

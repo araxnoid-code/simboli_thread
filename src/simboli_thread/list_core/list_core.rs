@@ -7,30 +7,32 @@ use std::{
     },
 };
 
-use crate::simboli_thread::list_core::{task_list::TaskList, waiting_task::WaitingTask};
+use crate::simboli_thread::list_core::{Waiting, task_list::TaskList, waiting_task::WaitingTask};
 
-pub struct ListCore<F>
+pub struct ListCore<F, T>
 where
-    F: Fn() + Send + 'static,
+    F: Fn() -> T + Send + 'static,
+    T: 'static,
 {
     // primary Stack
     id_counter: AtomicU64,
-    start: AtomicPtr<WaitingTask<F>>,
-    end: AtomicPtr<WaitingTask<F>>,
+    start: AtomicPtr<WaitingTask<F, T>>,
+    end: AtomicPtr<WaitingTask<F, T>>,
 
     // handler
     pub(crate) in_task: Arc<AtomicU64>,
 
     // Swap Stack
-    swap_start: AtomicPtr<WaitingTask<F>>,
-    swap_end: AtomicPtr<WaitingTask<F>>,
+    swap_start: AtomicPtr<WaitingTask<F, T>>,
+    swap_end: AtomicPtr<WaitingTask<F, T>>,
 }
 
-impl<F> ListCore<F>
+impl<F, T> ListCore<F, T>
 where
-    F: Fn() + Send + 'static,
+    F: Fn() -> T + Send + 'static,
+    T: 'static,
 {
-    pub fn init() -> ListCore<F> {
+    pub fn init() -> ListCore<F, T> {
         Self {
             // primary Stack
             id_counter: AtomicU64::new(0),
@@ -53,7 +55,7 @@ where
     pub fn get_waiting_task_from_primary_stack<const N: usize>(
         &self,
         len: u32,
-    ) -> Result<TaskList<F, N>, &str> {
+    ) -> Result<TaskList<F, T, N>, &str> {
         let start_waiting_task = self.start.load(Ordering::Acquire);
 
         // scanning start from "end"
@@ -77,7 +79,6 @@ where
                         // store the task
                         // // start from bottom
                         list_task[(N - 1) - count as usize] = AtomicPtr::new(waiting_task);
-                        // list_task.push(AtomicPtr::new(waiting_task));
                         // update start
                         self.start.store(null_mut(), Ordering::Release);
                         // update end
@@ -94,8 +95,8 @@ where
 
                 // store the task
                 // // start from bottom
+
                 list_task[(N - 1) - count as usize] = AtomicPtr::new(waiting_task);
-                // list_task.push(AtomicPtr::new(waiting_task));
                 // update end
                 self.end.store(next_waiting_task, Ordering::Release);
                 count += 1;
@@ -128,15 +129,18 @@ where
         }
     }
 
-    pub fn task_from_main_thread(&self, task: F) {
+    pub fn task_from_main_thread(&self, task: F) -> Waiting<T> {
         // main thread only focus in swap queue, base on swap start
         // update in_task handler
         self.in_task.fetch_add(1, Ordering::SeqCst);
+        // create return_ptr
+        let return_ptr: &'static AtomicPtr<T> = Box::leak(Box::new(AtomicPtr::new(null_mut())));
         // create waiting task
         let waiting_task = WaitingTask {
             id: self.id_counter.fetch_add(1, Ordering::Release),
             task,
             next: AtomicPtr::new(ptr::null_mut()),
+            waiting_return_ptr: return_ptr,
         };
 
         let waiting_task_ptr = Box::into_raw(Box::new(waiting_task));
@@ -152,6 +156,11 @@ where
         } else {
             // saving end waiting task for spanning validation in thread pool later
             self.swap_end.store(waiting_task_ptr, Ordering::Release);
+        }
+
+        Waiting {
+            data_ptr: return_ptr,
+            data: None,
         }
     }
 }

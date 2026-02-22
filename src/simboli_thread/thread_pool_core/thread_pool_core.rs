@@ -1,4 +1,5 @@
 use std::{
+    hint::spin_loop,
     ptr::null_mut,
     sync::{
         Arc,
@@ -10,13 +11,14 @@ use std::{
 
 use crate::{ListCore, simboli_thread::thread_pool_core::thread_unit::ThreadUnit};
 
-pub struct ThreadPoolCore<F, const N: usize, const Q: usize>
+pub struct ThreadPoolCore<F, T, const N: usize, const Q: usize>
 where
-    F: Fn() + 'static + Send,
+    F: Fn() -> T + 'static + Send,
+    T: 'static,
 {
     // main thread pool
     pub(crate) queue_size: usize,
-    pub(crate) pool: Arc<AtomicPtr<Vec<(Option<JoinHandle<()>>, Arc<ThreadUnit<F, Q>>)>>>,
+    pub(crate) pool: Arc<AtomicPtr<Vec<(Option<JoinHandle<()>>, Arc<ThreadUnit<F, T, Q>>)>>>,
 
     // handler
     pub(crate) reprt_handler: Arc<AtomicBool>,
@@ -24,14 +26,14 @@ where
     pub(crate) join_flag: Arc<AtomicBool>,
 
     // list core
-    list_core: Arc<ListCore<F>>,
+    list_core: Arc<ListCore<F, T>>,
 }
 
-impl<F, const N: usize, const Q: usize> ThreadPoolCore<F, N, Q>
+impl<F, T, const N: usize, const Q: usize> ThreadPoolCore<F, T, N, Q>
 where
-    F: Fn() + 'static + Send,
+    F: Fn() -> T + 'static + Send,
 {
-    pub fn init(list_core: Arc<ListCore<F>>) -> ThreadPoolCore<F, N, Q> {
+    pub fn init(list_core: Arc<ListCore<F, T>>) -> ThreadPoolCore<F, T, N, Q> {
         // handler
         let reprt_handler = Arc::new(AtomicBool::new(true));
         let join_flag = Arc::new(AtomicBool::new(false));
@@ -78,7 +80,7 @@ where
             // spawn thread
             let spawn = thread::spawn(move || {
                 let thread_unit = Arc::new(
-                    ThreadUnit::<F, Q>::init(
+                    ThreadUnit::<F, T, Q>::init(
                         id,
                         N,
                         reprt_handler_clone,
@@ -156,6 +158,7 @@ where
                 {
                     break;
                 }
+                spin_loop();
             }
 
             // join
