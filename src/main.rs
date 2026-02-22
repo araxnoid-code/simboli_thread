@@ -1,22 +1,109 @@
-use std::{ptr::null_mut, sync::atomic::AtomicPtr};
+use crate::engine::{InputTrait, InputTraitWithParams, MyEngine, OuputTrait};
 
-use simboli_thread::SimboliThread;
+mod engine {
+    use std::marker::PhantomData;
 
-#[derive(Debug)]
-enum MyOutput {
-    number(String),
-    Int(i32),
-    None,
+    pub struct MyEngine<I, O>
+    where
+        I: InputTrait<O>,
+        O: OuputTrait,
+    {
+        input: PhantomData<I>,
+        output: PhantomData<O>,
+    }
+
+    impl<I, O> MyEngine<I, O>
+    where
+        I: InputTrait<O>,
+        O: OuputTrait,
+    {
+        pub fn init() -> Self {
+            Self {
+                input: PhantomData::default(),
+                output: PhantomData::default(),
+            }
+        }
+
+        pub fn execute(&self, input: I) -> O {
+            input.exec()
+        }
+
+        pub fn execute_with_params<IP, P>(&self, input: IP, params: P) -> O
+        where
+            IP: InputTraitWithParams<P, O>,
+        {
+            input.exec(params)
+        }
+    }
+
+    pub trait InputTrait<O>
+    where
+        O: OuputTrait,
+    {
+        fn exec(&self) -> O;
+    }
+
+    pub trait InputTraitWithParams<P, O>
+    where
+        O: OuputTrait,
+    {
+        fn exec(&self, params: P) -> O;
+    }
+
+    pub trait OuputTrait {}
+}
+
+enum MyOuput {
+    String,
+    Int,
+    NIHIL,
+}
+impl OuputTrait for MyOuput {}
+
+enum WrapperFunction {
+    First(fn() -> MyOuput),
+    Second(fn() -> MyOuput),
+    Third(fn(data: &'static str) -> MyOuput),
+}
+
+impl InputTrait<MyOuput> for WrapperFunction {
+    fn exec(&self) -> MyOuput {
+        match self {
+            Self::First(f) => f(),
+            Self::Second(f) => f(),
+            _ => MyOuput::NIHIL,
+        }
+    }
+}
+
+impl InputTraitWithParams<&'static str, MyOuput> for WrapperFunction {
+    fn exec(&self, params: &'static str) -> MyOuput {
+        match self {
+            Self::Third(f) => f(params),
+            _ => MyOuput::NIHIL,
+        }
+    }
 }
 
 fn main() {
-    let thread_pool = SimboliThread::<_, MyOutput, 8, 32>::init();
+    let engine = MyEngine::init();
 
-    let mut out = thread_pool.spawn_task(|| MyOutput::number("hello world".to_string()));
+    let out_1 = engine.execute(WrapperFunction::First(|| {
+        println!("hello");
+        MyOuput::Int
+    }));
 
-    let my_out = out.block();
+    let out_2 = engine.execute(WrapperFunction::Second(|| {
+        println!("world");
+        MyOuput::String
+    }));
 
-    drop(out);
-
-    thread_pool.join();
+    let input = "done!";
+    let out_3 = engine.execute_with_params(
+        WrapperFunction::Third(|input: &str| {
+            println!("{}", input);
+            MyOuput::String
+        }),
+        input,
+    );
 }
