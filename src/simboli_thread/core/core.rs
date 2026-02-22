@@ -1,26 +1,26 @@
 use std::sync::Arc;
 
-use crate::{ListCore, ThreadPoolCore, simboli_thread::list_core::Waiting};
+use crate::{ListCore, OutputTrait, TaskTrait, ThreadPoolCore, simboli_thread::list_core::Waiting};
 
-pub struct SimboliThread<F, T, const N: usize, const Q: usize>
+pub struct SimboliThread<F, O, const N: usize, const Q: usize>
 where
-    F: Fn() -> T + 'static + Send,
-    T: 'static,
+    F: TaskTrait<O> + 'static + Send,
+    O: 'static + OutputTrait,
 {
     // List Core
-    list_core: Arc<ListCore<F, T>>,
+    list_core: Arc<ListCore<F, O>>,
     // thread pool Core
-    thread_pool_core: ThreadPoolCore<F, T, N, Q>,
+    thread_pool_core: ThreadPoolCore<F, O, N, Q>,
 }
 
-impl<F, T, const N: usize, const Q: usize> SimboliThread<F, T, N, Q>
+impl<F, O, const N: usize, const Q: usize> SimboliThread<F, O, N, Q>
 where
-    F: Fn() -> T + 'static + Send,
-    T: 'static,
+    F: TaskTrait<O> + 'static + Send,
+    O: 'static + OutputTrait,
 {
-    pub fn init() -> SimboliThread<F, T, N, Q> {
-        let list_core = Arc::new(ListCore::<F, T>::init());
-        let thread_pool_core = ThreadPoolCore::<F, T, N, Q>::init(list_core.clone());
+    pub fn init() -> SimboliThread<F, O, N, Q> {
+        let list_core = Arc::new(ListCore::<F, O>::init());
+        let thread_pool_core = ThreadPoolCore::<F, O, N, Q>::init(list_core.clone());
 
         Self {
             list_core,
@@ -28,7 +28,7 @@ where
         }
     }
 
-    pub fn spawn_task(&self, f: F) -> Waiting<T> {
+    pub fn spawn_task(&self, f: F) -> Waiting<O> {
         self.list_core.task_from_main_thread(f)
     }
 

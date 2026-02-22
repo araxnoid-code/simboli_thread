@@ -7,32 +7,36 @@ use std::{
     },
 };
 
-use crate::simboli_thread::list_core::{Waiting, task_list::TaskList, waiting_task::WaitingTask};
+use crate::simboli_thread::list_core::{
+    Waiting,
+    task_list::TaskList,
+    waiting_task::{OutputTrait, TaskTrait, WaitingTask},
+};
 
-pub struct ListCore<F, T>
+pub struct ListCore<F, O>
 where
-    F: Fn() -> T + Send + 'static,
-    T: 'static,
+    F: TaskTrait<O> + Send + 'static,
+    O: 'static + OutputTrait,
 {
     // primary Stack
     id_counter: AtomicU64,
-    start: AtomicPtr<WaitingTask<F, T>>,
-    end: AtomicPtr<WaitingTask<F, T>>,
+    start: AtomicPtr<WaitingTask<F, O>>,
+    end: AtomicPtr<WaitingTask<F, O>>,
 
     // handler
     pub(crate) in_task: Arc<AtomicU64>,
 
     // Swap Stack
-    swap_start: AtomicPtr<WaitingTask<F, T>>,
-    swap_end: AtomicPtr<WaitingTask<F, T>>,
+    swap_start: AtomicPtr<WaitingTask<F, O>>,
+    swap_end: AtomicPtr<WaitingTask<F, O>>,
 }
 
-impl<F, T> ListCore<F, T>
+impl<F, O> ListCore<F, O>
 where
-    F: Fn() -> T + Send + 'static,
-    T: 'static,
+    F: TaskTrait<O> + Send + 'static,
+    O: 'static + OutputTrait,
 {
-    pub fn init() -> ListCore<F, T> {
+    pub fn init() -> ListCore<F, O> {
         Self {
             // primary Stack
             id_counter: AtomicU64::new(0),
@@ -55,7 +59,7 @@ where
     pub fn get_waiting_task_from_primary_stack<const N: usize>(
         &self,
         len: u32,
-    ) -> Result<TaskList<F, T, N>, &str> {
+    ) -> Result<TaskList<F, O, N>, &str> {
         let start_waiting_task = self.start.load(Ordering::Acquire);
 
         // scanning start from "end"
@@ -129,12 +133,12 @@ where
         }
     }
 
-    pub fn task_from_main_thread(&self, task: F) -> Waiting<T> {
+    pub fn task_from_main_thread(&self, task: F) -> Waiting<O> {
         // main thread only focus in swap queue, base on swap start
         // update in_task handler
         self.in_task.fetch_add(1, Ordering::SeqCst);
         // create return_ptr
-        let return_ptr: &'static AtomicPtr<T> = Box::leak(Box::new(AtomicPtr::new(null_mut())));
+        let return_ptr: &'static AtomicPtr<O> = Box::leak(Box::new(AtomicPtr::new(null_mut())));
         // create waiting task
         let waiting_task = WaitingTask {
             id: self.id_counter.fetch_add(1, Ordering::Release),

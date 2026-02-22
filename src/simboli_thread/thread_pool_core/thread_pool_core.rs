@@ -9,16 +9,18 @@ use std::{
     thread::{self, JoinHandle},
 };
 
-use crate::{ListCore, simboli_thread::thread_pool_core::thread_unit::ThreadUnit};
+use crate::{
+    ListCore, OutputTrait, TaskTrait, simboli_thread::thread_pool_core::thread_unit::ThreadUnit,
+};
 
-pub struct ThreadPoolCore<F, T, const N: usize, const Q: usize>
+pub struct ThreadPoolCore<F, O, const N: usize, const Q: usize>
 where
-    F: Fn() -> T + 'static + Send,
-    T: 'static,
+    F: TaskTrait<O> + 'static + Send,
+    O: 'static + OutputTrait,
 {
     // main thread pool
     pub(crate) queue_size: usize,
-    pub(crate) pool: Arc<AtomicPtr<Vec<(Option<JoinHandle<()>>, Arc<ThreadUnit<F, T, Q>>)>>>,
+    pub(crate) pool: Arc<AtomicPtr<Vec<(Option<JoinHandle<()>>, Arc<ThreadUnit<F, O, Q>>)>>>,
 
     // handler
     pub(crate) reprt_handler: Arc<AtomicBool>,
@@ -26,14 +28,15 @@ where
     pub(crate) join_flag: Arc<AtomicBool>,
 
     // list core
-    list_core: Arc<ListCore<F, T>>,
+    list_core: Arc<ListCore<F, O>>,
 }
 
-impl<F, T, const N: usize, const Q: usize> ThreadPoolCore<F, T, N, Q>
+impl<F, O, const N: usize, const Q: usize> ThreadPoolCore<F, O, N, Q>
 where
-    F: Fn() -> T + 'static + Send,
+    F: TaskTrait<O> + 'static + Send,
+    O: OutputTrait,
 {
-    pub fn init(list_core: Arc<ListCore<F, T>>) -> ThreadPoolCore<F, T, N, Q> {
+    pub fn init(list_core: Arc<ListCore<F, O>>) -> ThreadPoolCore<F, O, N, Q> {
         // handler
         let reprt_handler = Arc::new(AtomicBool::new(true));
         let join_flag = Arc::new(AtomicBool::new(false));
@@ -80,7 +83,7 @@ where
             // spawn thread
             let spawn = thread::spawn(move || {
                 let thread_unit = Arc::new(
-                    ThreadUnit::<F, T, Q>::init(
+                    ThreadUnit::<F, O, Q>::init(
                         id,
                         N,
                         reprt_handler_clone,

@@ -9,12 +9,12 @@ use std::{
     time::Duration,
 };
 
-use crate::{ListCore, WaitingTask};
+use crate::{ListCore, OutputTrait, TaskTrait, WaitingTask};
 
-pub struct ThreadUnit<F, T, const N: usize>
+pub struct ThreadUnit<F, O, const N: usize>
 where
-    F: Fn() -> T + 'static + Send,
-    T: 'static,
+    F: TaskTrait<O> + 'static + Send,
+    O: 'static + OutputTrait,
 {
     // thread
     // // unique
@@ -22,9 +22,9 @@ where
     pub(crate) xorshift_seed: AtomicU32,
     // // engine
     pub(crate) spawn: Option<JoinHandle<()>>,
-    pub(crate) running: AtomicPtr<WaitingTask<F, T>>,
+    pub(crate) running: AtomicPtr<WaitingTask<F, O>>,
     // // storage
-    pub(crate) queue: AtomicPtr<[AtomicPtr<WaitingTask<F, T>>; N]>,
+    pub(crate) queue: AtomicPtr<[AtomicPtr<WaitingTask<F, O>>; N]>,
     pub(crate) batch: u32,
     pub(crate) top: AtomicUsize,
     pub(crate) bottom: AtomicUsize,
@@ -35,23 +35,23 @@ where
     pub(crate) done_task: Arc<AtomicU64>,
     // group
     pub(crate) reprt_group_handler: Arc<AtomicBool>,
-    pub(crate) start_group: AtomicPtr<WaitingTask<F, T>>,
-    pub(crate) end_group: AtomicPtr<WaitingTask<F, T>>,
+    pub(crate) start_group: AtomicPtr<WaitingTask<F, O>>,
+    pub(crate) end_group: AtomicPtr<WaitingTask<F, O>>,
 
     // share
     // // thread_pool
     pub(crate) total_threads: usize,
-    pub(crate) pool: Arc<AtomicPtr<Vec<(Option<JoinHandle<()>>, Arc<ThreadUnit<F, T, N>>)>>>,
+    pub(crate) pool: Arc<AtomicPtr<Vec<(Option<JoinHandle<()>>, Arc<ThreadUnit<F, O, N>>)>>>,
     pub(crate) reprt_handler: Arc<AtomicBool>,
 
     // // list core
-    pub(crate) list_core: Arc<ListCore<F, T>>,
+    pub(crate) list_core: Arc<ListCore<F, O>>,
 }
 
-impl<F, T, const Q: usize> ThreadUnit<F, T, Q>
+impl<F, O, const Q: usize> ThreadUnit<F, O, Q>
 where
-    F: Fn() -> T + 'static + Send,
-    T: 'static,
+    F: TaskTrait<O> + 'static + Send,
+    O: 'static + OutputTrait,
 {
     pub fn clean(&self) {
         unsafe {
@@ -80,10 +80,10 @@ where
         reprt_handler: Arc<AtomicBool>,
         join_flag: Arc<AtomicBool>,
         done_task: Arc<AtomicU64>,
-        pool: Arc<AtomicPtr<Vec<(Option<JoinHandle<()>>, Arc<ThreadUnit<F, T, Q>>)>>>,
-        list_core: Arc<ListCore<F, T>>,
+        pool: Arc<AtomicPtr<Vec<(Option<JoinHandle<()>>, Arc<ThreadUnit<F, O, Q>>)>>>,
+        list_core: Arc<ListCore<F, O>>,
         reprt_group_handler: Arc<AtomicBool>,
-    ) -> Result<ThreadUnit<F, T, Q>, &'static str> {
+    ) -> Result<ThreadUnit<F, O, Q>, &'static str> {
         let mut queue_vector = Vec::with_capacity(Q);
         for _ in 0..Q {
             queue_vector.push(AtomicPtr::new(null_mut()));
@@ -290,7 +290,7 @@ where
                             list_waiting_task.push(AtomicPtr::new(null_mut()));
                         }
 
-                        let mut list_waiting_task: [AtomicPtr<WaitingTask<F, T>>; Q] =
+                        let mut list_waiting_task: [AtomicPtr<WaitingTask<F, O>>; Q] =
                             list_waiting_task.try_into().unwrap();
 
                         // // check every task
@@ -368,7 +368,7 @@ where
                         // running the task
                         let task = Box::from_raw(waiting_task);
 
-                        let output = Box::into_raw(Box::new((task.task)()));
+                        let output = Box::into_raw(Box::new(task.task.exec()));
                         task.waiting_return_ptr.store(output, Ordering::Release);
 
                         drop(task);
