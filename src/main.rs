@@ -1,34 +1,53 @@
-use simboli_thread::{SimboliThread, ThreadUnit};
+use std::{thread::sleep, time::Duration};
 
-fn main() {
-    // SimboliThread initialization
-    // note: SymboliThread manual annotation, namely SymboliThread<fn, number of threads in the thread pool, queue size for each thread in the thread pool>
-    //       for the SymboliThread<fn,_,_> part of fn, it's best to leave it to the compiler
-    let thread_pool = SimboliThread::<_, 8, 32>::init();
+use simboli_thread::{OutputTrait, SimboliThread, TaskTrait};
 
-    thread_pool.spawn_task(|thread_unit| {});
+#[derive(Debug)]
+enum MyOuput {
+    String,
+    Int,
+}
+impl OutputTrait for MyOuput {}
 
-    // the main thread will stop here, waiting for all threads to stop and all tasks to be completed
-    // thread_pool.join();
+struct MyTask(fn() -> MyOuput);
 
-    println!("done!")
+impl TaskTrait<MyOuput> for MyTask {
+    fn exec(&self) -> MyOuput {
+        (self.0)()
+    }
 }
 
-// fn main() {
-//     let slot = 2_u32;
-//     let data = 8_u32;
+fn main() {
+    let thread_pool = SimboliThread::<MyTask, MyOuput, 8, 32>::init();
 
-//     let mark = !((1 << slot) - 1);
-//     let result = data & mark;
+    for i in 0..100 {
+        sleep(Duration::from_millis(25));
+        // let wait_a = thread_pool.spawn_task(MyTask(|| {
+        //     MyOuput::String
+        // }));
+    }
 
-//     println!("{:032b}", data);
-//     println!("{:032b}", mark);
-//     println!("{:032b}", result);
-//     println!("index: {}", result);
-// }
+    // thread_pool.join();
 
-// fn my_test<F>(f: F)
-// where
-//     F: Fn(&i32) + 'static + Send,
-// {
-// }
+    // let wait_a = thread_pool.spawn_task(MyTask(|| {
+    //     sleep(Duration::from_millis(500));
+    //     println!("hello world");
+    //     MyOuput::String
+    // }));
+
+    // let wait_b = thread_pool.spawn_task(MyTask(|| {
+    //     sleep(Duration::from_millis(500));
+    //     println!("this different task!");
+    //     MyOuput::Int
+    // }));
+
+    // let wait_c = thread_pool.spawn_task(MyTask(|| {
+    //     sleep(Duration::from_millis(500));
+    //     println!("that's work!");
+    //     MyOuput::Int
+    // }));
+
+    // thread_pool.join();
+
+    // println!("done!")
+}

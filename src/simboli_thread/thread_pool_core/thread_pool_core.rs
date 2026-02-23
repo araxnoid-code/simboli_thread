@@ -1,4 +1,5 @@
 use std::{
+    hint::spin_loop,
     ptr::null_mut,
     sync::{
         Arc,
@@ -8,15 +9,18 @@ use std::{
     thread::{self, JoinHandle},
 };
 
-use crate::{ListCore, simboli_thread::thread_pool_core::thread_unit::ThreadUnit};
+use crate::{
+    ListCore, OutputTrait, TaskTrait, simboli_thread::thread_pool_core::thread_unit::ThreadUnit,
+};
 
-pub struct ThreadPoolCore<F, const N: usize, const Q: usize>
+pub struct ThreadPoolCore<F, O, const N: usize, const Q: usize>
 where
-    F: Fn(&ThreadUnit<F, Q>) + 'static + Send,
+    F: TaskTrait<O> + 'static + Send,
+    O: 'static + OutputTrait,
 {
     // main thread pool
     pub(crate) queue_size: usize,
-    pub(crate) pool: Arc<AtomicPtr<Vec<(Option<JoinHandle<()>>, Arc<ThreadUnit<F, Q>>)>>>,
+    pub(crate) pool: Arc<AtomicPtr<Vec<(Option<JoinHandle<()>>, Arc<ThreadUnit<F, O, Q>>)>>>,
 
     // handler
     pub(crate) reprt_handler: Arc<AtomicBool>,
@@ -24,14 +28,15 @@ where
     pub(crate) join_flag: Arc<AtomicBool>,
 
     // list core
-    list_core: Arc<ListCore<F, Q>>,
+    list_core: Arc<ListCore<F, O>>,
 }
 
-impl<F, const N: usize, const Q: usize> ThreadPoolCore<F, N, Q>
+impl<F, O, const N: usize, const Q: usize> ThreadPoolCore<F, O, N, Q>
 where
-    F: Fn(&ThreadUnit<F, Q>) + 'static + Send,
+    F: TaskTrait<O> + 'static + Send,
+    O: OutputTrait,
 {
-    pub fn init(list_core: Arc<ListCore<F, Q>>) -> ThreadPoolCore<F, N, Q> {
+    pub fn init(list_core: Arc<ListCore<F, O>>) -> ThreadPoolCore<F, O, N, Q> {
         // handler
         let reprt_handler = Arc::new(AtomicBool::new(true));
         let join_flag = Arc::new(AtomicBool::new(false));
@@ -78,7 +83,7 @@ where
             // spawn thread
             let spawn = thread::spawn(move || {
                 let thread_unit = Arc::new(
-                    ThreadUnit::<F, Q>::init(
+                    ThreadUnit::<F, O, Q>::init(
                         id,
                         N,
                         reprt_handler_clone,
@@ -156,6 +161,7 @@ where
                 {
                     break;
                 }
+                spin_loop();
             }
 
             // join

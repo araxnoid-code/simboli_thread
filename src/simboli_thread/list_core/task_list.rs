@@ -1,12 +1,13 @@
 use std::sync::atomic::AtomicPtr;
 
-use crate::{ThreadUnit, simboli_thread::list_core::waiting_task::WaitingTask};
+use crate::simboli_thread::list_core::waiting_task::{OutputTrait, TaskTrait, WaitingTask};
 
-pub struct TaskList<F, const N: usize, const Q: usize>
+pub struct TaskList<F, O, const N: usize>
 where
-    F: Fn(&ThreadUnit<F, Q>) + Send + 'static,
+    F: TaskTrait<O> + Send + 'static,
+    O: 'static + OutputTrait,
 {
-    pub(crate) list: [AtomicPtr<WaitingTask<F, Q>>; N],
+    pub(crate) list: [AtomicPtr<WaitingTask<F, O>>; N],
     pub(crate) count: u64,
     pub(crate) top: u64,
     pub(crate) bottom: u64,

@@ -1,33 +1,34 @@
 use std::sync::Arc;
 
-use crate::{ListCore, ThreadPoolCore, ThreadUnit};
+use crate::{ListCore, OutputTrait, TaskTrait, ThreadPoolCore, simboli_thread::list_core::Waiting};
 
-pub struct SimboliThread<F, const N: usize, const Q: usize>
+pub struct SimboliThread<F, O, const N: usize, const Q: usize>
 where
-    F: Fn(&ThreadUnit<F, Q>) + 'static + Send,
+    F: TaskTrait<O> + 'static + Send,
+    O: 'static + OutputTrait,
 {
     // List Core
-    list_core: Arc<ListCore<F, Q>>,
+    list_core: Arc<ListCore<F, O>>,
     // thread pool Core
-    thread_pool_core: ThreadPoolCore<F, N, Q>,
+    thread_pool_core: ThreadPoolCore<F, O, N, Q>,
 }
 
-impl<F, const N: usize, const Q: usize> SimboliThread<F, N, Q>
+impl<F, O, const N: usize, const Q: usize> SimboliThread<F, O, N, Q>
 where
-    F: Fn(&ThreadUnit<F, Q>) + 'static + Send,
+    F: TaskTrait<O> + 'static + Send,
+    O: 'static + OutputTrait,
 {
-    pub fn init() -> SimboliThread<F, N, Q> {
-        let list_core = Arc::new(ListCore::<F, Q>::init());
-        let thread_pool_core = ThreadPoolCore::<F, N, Q>::init(list_core.clone());
-
+    pub fn init() -> SimboliThread<F, O, N, Q> {
+        let list_core = Arc::new(ListCore::<F, O>::init());
+        let thread_pool_core = ThreadPoolCore::<F, O, N, Q>::init(list_core.clone());
         Self {
             list_core,
             thread_pool_core,
         }
     }
 
-    pub fn spawn_task(&self, f: F) {
-        self.list_core.task_from_main_thread(f);
+    pub fn spawn_task(&self, f: F) -> Waiting<O> {
+        self.list_core.task_from_main_thread(f)
     }
 
     /// joining threads in thread pools, does not ensure that all tasks have completed execution before the thread stops
