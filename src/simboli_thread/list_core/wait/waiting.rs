@@ -7,12 +7,12 @@ use std::{
     },
 };
 
-pub struct Waiting<T>
+pub struct Waiting<O>
 where
-    T: 'static,
+    O: 'static,
 {
-    pub(crate) data_ptr: &'static AtomicPtr<T>,
-    pub(crate) data: Option<T>,
+    pub(crate) data_ptr: &'static AtomicPtr<O>,
+    pub(crate) data: Option<O>,
 }
 
 impl<T> Waiting<T> {

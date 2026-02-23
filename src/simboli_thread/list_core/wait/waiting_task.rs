@@ -1,4 +1,6 @@
-use std::sync::{Arc, atomic::AtomicPtr};
+use std::sync::atomic::AtomicPtr;
+
+use crate::simboli_thread::list_core::wait::dependencies_task::TaskDependenciesCore;
 
 pub struct WaitingTask<F, O>
 where
@@ -9,6 +11,8 @@ where
     pub(crate) task: F,
     pub(crate) next: AtomicPtr<WaitingTask<F, O>>,
     pub(crate) waiting_return_ptr: &'static AtomicPtr<O>,
+    // dependencies
+    pub(crate) task_dependencies_ptr: &'static TaskDependenciesCore<F, O>, // will be shared. to Waiting<O> and WaitingTask<F, O>
 }
 
 pub trait OutputTrait {}
