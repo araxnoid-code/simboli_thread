@@ -3,8 +3,5 @@ pub use list_core::ListCore;
 
 mod task_list;
 
-mod waiting_task;
-pub use waiting_task::{OutputTrait, TaskTrait, WaitingTask};
-
-mod waiting;
-pub use waiting::*;
+mod wait;
+pub use wait::*;

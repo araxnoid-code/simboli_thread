@@ -1,6 +1,6 @@
 use std::sync::atomic::AtomicPtr;
 
-use crate::simboli_thread::list_core::waiting_task::{OutputTrait, TaskTrait, WaitingTask};
+use crate::{OutputTrait, TaskTrait, WaitingTask};
 
 pub struct TaskList<F, O, const N: usize>
 where

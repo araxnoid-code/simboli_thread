@@ -8,9 +8,7 @@ use std::{
 };
 
 use crate::simboli_thread::list_core::{
-    Waiting,
-    task_list::TaskList,
-    waiting_task::{OutputTrait, TaskTrait, WaitingTask},
+    OutputTrait, TaskTrait, Waiting, WaitingTask, task_list::TaskList,
 };
 
 pub struct ListCore<F, O>
