@@ -1,6 +1,6 @@
 use std::{
     ptr::null_mut,
-    sync::atomic::{AtomicPtr, AtomicUsize},
+    sync::atomic::{AtomicBool, AtomicPtr, AtomicUsize},
 };
 
 use crate::{OutputTrait, TaskTrait, Waiting, WaitingTask};
@@ -12,6 +12,7 @@ where
     O: 'static + OutputTrait,
 {
     pub(crate) status: bool,
+    pub(crate) activity: AtomicBool,
     pub(crate) counter: AtomicUsize,
     pub(crate) start: AtomicPtr<WaitingTask<F, O>>, // default null, will capture the task need this task output
     pub(crate) end: AtomicPtr<WaitingTask<F, O>>, // default null, will capture the task need this task output
@@ -25,6 +26,7 @@ where
     pub fn init(counter: usize) -> TaskDependenciesCore<F, O> {
         Self {
             status: true,
+            activity: AtomicBool::new(true),
             counter: AtomicUsize::new(counter),
             start: AtomicPtr::new(null_mut()),
             end: AtomicPtr::new(null_mut()),
@@ -34,6 +36,7 @@ where
     pub fn dummy() -> TaskDependenciesCore<F, O> {
         Self {
             status: false,
+            activity: AtomicBool::new(true),
             counter: AtomicUsize::new(0),
             start: AtomicPtr::new(null_mut()),
             end: AtomicPtr::new(null_mut()),

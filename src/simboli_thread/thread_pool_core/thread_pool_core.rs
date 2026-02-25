@@ -69,8 +69,8 @@ where
             let reprt_handler_clone = reprt_handler.clone();
 
             // reprt_group_handler, update every 2
-            if id % 2 == 0 {
-                reprt_group_handler = Arc::new(AtomicBool::new(false));
+            if id % size == 0 {
+                reprt_group_handler = Arc::new(AtomicBool::new(true));
             }
             let reprt_group_handler_clone = reprt_group_handler.clone();
 

@@ -18,10 +18,18 @@ impl TaskTrait<MyOuput> for MyTask {
 }
 
 fn main() {
-    let thread_pool = SimboliThread::<MyTask, MyOuput, 8, 32>::init();
+    let value = 4_u64;
+    let marking = !((1_u64 << 1) - 1);
+    let result = value & marking;
 
-    let my_dependencies = [MyTask(|| MyOuput::Int), MyTask(|| MyOuput::String)];
-    let my_waiting = thread_pool.spawn_task_dependencies(my_dependencies);
+    println!("{:08b}", value);
+    println!("{:08b}", marking);
+    println!("{:08b} => {}", result, result);
+
+    // let thread_pool = SimboliThread::<MyTask, MyOuput, 8, 32>::init();
+
+    // let my_dependencies = [MyTask(|| MyOuput::Int), MyTask(|| MyOuput::String)];
+    // let my_waiting = thread_pool.spawn_task_dependencies(my_dependencies);
 
     // let array: [i32; 10];
     // println!("{:?}", array);

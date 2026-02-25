@@ -6,7 +6,6 @@ use std::{
         atomic::{AtomicBool, AtomicPtr, AtomicU32, AtomicU64, AtomicUsize, Ordering},
     },
     thread::{self, JoinHandle},
-    time::Duration,
 };
 
 use crate::{ListCore, OutputTrait, TaskTrait, WaitingTask};
@@ -35,8 +34,9 @@ where
     pub(crate) done_task: Arc<AtomicU64>,
     // group
     pub(crate) reprt_group_handler: Arc<AtomicBool>,
-    pub(crate) start_group: AtomicPtr<WaitingTask<F, O>>,
-    pub(crate) end_group: AtomicPtr<WaitingTask<F, O>>,
+    pub(crate) reprt_group_counter: AtomicUsize,
+    pub(crate) start_l_waiting_list: AtomicPtr<WaitingTask<F, O>>,
+    pub(crate) end_l_waiting_list: AtomicPtr<WaitingTask<F, O>>,
 
     // share
     // // thread_pool
@@ -118,8 +118,9 @@ where
             total_threads,
 
             reprt_group_handler,
-            start_group: AtomicPtr::new(null_mut()),
-            end_group: AtomicPtr::new(null_mut()),
+            reprt_group_counter: AtomicUsize::new(0),
+            start_l_waiting_list: AtomicPtr::new(null_mut()),
+            end_l_waiting_list: AtomicPtr::new(null_mut()),
 
             list_core,
         })
@@ -136,6 +137,38 @@ where
 
     pub fn running(&self) {
         loop {
+            // add reprt_group counter
+            self.reprt_group_counter.fetch_add(1, Ordering::Release);
+            if self.reprt_group_counter.load(Ordering::Acquire) >= 25 {
+                // harvesting!
+                let is_reprt_group = self.reprt_group_handler.swap(false, Ordering::AcqRel);
+                if !is_reprt_group {
+                    self.reprt_group_counter.store(0, Ordering::Release);
+                    self.reprt_group_handler.store(true, Ordering::Release);
+                    continue;
+                }
+
+                let id = self.id as u64;
+                // size each group 2
+                let marking = !((1_u64 << 1) - 1);
+                let index = id & marking;
+
+                unsafe {
+                    let pool = &*self.pool.load(Ordering::Acquire);
+                    for idx in index..index + 2 {
+                        let (_, harvesting_target) = &pool[idx as usize];
+                        let end = harvesting_target
+                            .end_l_waiting_list
+                            .swap(null_mut(), Ordering::AcqRel);
+
+                        if end.is_null() {
+                            let start =
+                                self.start_l_waiting_list.swap(null_mut(), Ordering::AcqRel);
+                        }
+                    }
+                }
+            }
+
             // is local queue empty?
             if self.top.load(Ordering::Acquire) >= self.bottom.load(Ordering::Acquire) {
                 // check join
@@ -154,9 +187,9 @@ where
                     continue;
                 };
                 // // check representative thread handler
-                let is_representative = (*self.reprt_handler).swap(false, Ordering::SeqCst);
+                let is_representative_thread = (*self.reprt_handler).swap(false, Ordering::SeqCst);
 
-                if is_representative {
+                if is_representative_thread {
                     // now, this thread as representative thread
                     // // check primary list
                     if (*self.list_core).is_primary_list_empty() {
@@ -365,13 +398,20 @@ where
                     let waiting_task = (*self.queue.load(Ordering::Acquire))[bottom - 1]
                         .swap(null_mut(), Ordering::AcqRel);
                     if !waiting_task.is_null() {
-                        // running the task
+                        // running the task, get the data
                         let task = Box::from_raw(waiting_task);
 
-                        let output = Box::into_raw(Box::new(task.task.exec()));
+                        // running the task, execute the data
+                        let running = task.task.exec();
+
+                        // running the task, update return
+                        let output = Box::into_raw(Box::new(running));
                         task.waiting_return_ptr.store(output, Ordering::Release);
 
-                        drop(task);
+                        // update dependences, only for dependences
+                        self.dependencies_handler(task);
+
+                        // update counter
                         self.done_task.fetch_add(1, Ordering::SeqCst);
                     }
 
@@ -380,5 +420,62 @@ where
                 }
             }
         }
+    }
+
+    pub fn dependencies_handler(&self, task: Box<WaitingTask<F, O>>) {
+        if task.task_dependencies_ptr.status {
+            let mut activity = task
+                .task_dependencies_ptr
+                .activity
+                .swap(true, Ordering::AcqRel);
+
+            // check,
+            while !activity {
+                spin_loop();
+                activity = task
+                    .task_dependencies_ptr
+                    .activity
+                    .swap(false, Ordering::AcqRel);
+            }
+
+            // get start and end
+            let dependencies_start = task
+                .task_dependencies_ptr
+                .start
+                .swap(null_mut(), Ordering::AcqRel);
+
+            let dependencies_end = task
+                .task_dependencies_ptr
+                .end
+                .swap(null_mut(), Ordering::AcqRel);
+
+            // check dependencies counter
+            if task.task_dependencies_ptr.counter.load(Ordering::Acquire) <= 0 {
+                // update dependencies counter
+                task.task_dependencies_ptr
+                    .counter
+                    .fetch_sub(1, Ordering::Release);
+
+                if !dependencies_start.is_null() {
+                    // not empty
+                    let start_task_waiting = self
+                        .start_l_waiting_list
+                        .swap(dependencies_start, Ordering::AcqRel);
+
+                    if !start_task_waiting.is_null() {
+                        unsafe {
+                            (*start_task_waiting)
+                                .next
+                                .store(dependencies_end, Ordering::Release);
+                        }
+                    } else {
+                        self.end_l_waiting_list
+                            .store(dependencies_end, Ordering::Release);
+                    }
+                }
+            }
+        }
+
+        drop(task);
     }
 }
