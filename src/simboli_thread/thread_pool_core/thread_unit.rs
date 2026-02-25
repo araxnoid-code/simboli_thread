@@ -422,19 +422,64 @@ where
         }
     }
 
+    pub fn dependencies_handler_type_2(&self, task: Box<WaitingTask<F, O>>) {
+        if task.task_dependencies_ptr.status {
+            // update done flag
+            task.task_dependencies_ptr
+                .done
+                .store(true, Ordering::Release);
+
+            let holding_task = task.task_dependencies_ptr.start.load(Ordering::Acquire);
+            if !holding_task.is_null() {
+                // CAS LOOP RETRY
+                let start_waiting_task = loop {
+                    let status = task.task_dependencies_ptr.start.compare_exchange(
+                        holding_task,
+                        null_mut(),
+                        Ordering::AcqRel,
+                        Ordering::Acquire,
+                    );
+
+                    if let Ok(waiting_task) = status {
+                        break waiting_task;
+                    } else {
+                        spin_loop();
+                        continue;
+                    }
+                };
+
+                let end_waiting_task = task
+                    .task_dependencies_ptr
+                    .end
+                    .swap(null_mut(), Ordering::Acquire);
+
+                let prev_start = self
+                    .start_l_waiting_list
+                    .swap(start_waiting_task, Ordering::AcqRel);
+                if !prev_start.is_null() {
+                    unsafe {
+                        (*prev_start)
+                            .next
+                            .store(end_waiting_task, Ordering::Release)
+                    };
+                } else {
+                    self.end_l_waiting_list
+                        .store(end_waiting_task, Ordering::Release);
+                }
+            }
+        }
+    }
+
     pub fn dependencies_handler(&self, task: Box<WaitingTask<F, O>>) {
         if task.task_dependencies_ptr.status {
-            let mut activity = task
-                .task_dependencies_ptr
-                .activity
-                .swap(true, Ordering::AcqRel);
+            let mut activity = task.task_dependencies_ptr.done.swap(true, Ordering::AcqRel);
 
             // check,
             while !activity {
                 spin_loop();
                 activity = task
                     .task_dependencies_ptr
-                    .activity
+                    .done
                     .swap(false, Ordering::AcqRel);
             }
 

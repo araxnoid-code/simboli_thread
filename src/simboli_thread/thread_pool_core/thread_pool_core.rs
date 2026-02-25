@@ -10,7 +10,8 @@ use std::{
 };
 
 use crate::{
-    ListCore, OutputTrait, TaskTrait, simboli_thread::thread_pool_core::thread_unit::ThreadUnit,
+    ListCore, OutputTrait, TaskTrait, WaitingTask,
+    simboli_thread::thread_pool_core::thread_unit::ThreadUnit,
 };
 
 pub struct ThreadPoolCore<F, O, const N: usize, const Q: usize>
