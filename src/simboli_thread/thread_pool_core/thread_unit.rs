@@ -408,8 +408,9 @@ where
                         let output = Box::into_raw(Box::new(running));
                         task.waiting_return_ptr.store(output, Ordering::Release);
 
-                        // update dependences, only for dependences
-                        self.dependencies_handler(task);
+                        // dependencies handler
+                        // self.dependencies_handler(task);
+                        self.dependencies_handler_type_2(task);
 
                         // update counter
                         self.done_task.fetch_add(1, Ordering::SeqCst);
@@ -429,12 +430,12 @@ where
                 .done
                 .store(true, Ordering::Release);
 
-            let holding_task = task.task_dependencies_ptr.start.load(Ordering::Acquire);
-            if !holding_task.is_null() {
-                // CAS LOOP RETRY
+            let check_task = task.task_dependencies_ptr.start.load(Ordering::Acquire);
+            if !check_task.is_null() {
+                // CAS RETRY LOOP
                 let start_waiting_task = loop {
                     let status = task.task_dependencies_ptr.start.compare_exchange(
-                        holding_task,
+                        task.task_dependencies_ptr.start.load(Ordering::Acquire),
                         null_mut(),
                         Ordering::AcqRel,
                         Ordering::Acquire,
@@ -456,6 +457,7 @@ where
                 let prev_start = self
                     .start_l_waiting_list
                     .swap(start_waiting_task, Ordering::AcqRel);
+
                 if !prev_start.is_null() {
                     unsafe {
                         (*prev_start)
@@ -468,6 +470,15 @@ where
                 }
             }
         }
+
+        let next_ptr = task.next.swap(null_mut(), Ordering::AcqRel);
+        if !next_ptr.is_null() {
+            unsafe {
+                drop(Box::from_raw(next_ptr));
+            }
+        }
+
+        drop(task);
     }
 
     pub fn dependencies_handler(&self, task: Box<WaitingTask<F, O>>) {
