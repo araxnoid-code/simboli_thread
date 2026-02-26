@@ -122,6 +122,26 @@ where
         Ok(list_task)
     }
 
+    pub fn insert_list_from_harvesting(
+        &self,
+        harvesting_start: AtomicPtr<WaitingTask<F, O>>,
+        harvesting_end: AtomicPtr<WaitingTask<F, O>>,
+    ) {
+        // insert_list_from_harvesting, must not null
+        let harvesting_end = harvesting_end.swap(null_mut(), Ordering::AcqRel);
+        if !harvesting_end.is_null() {
+            let harvesting_start = harvesting_start.swap(null_mut(), Ordering::AcqRel);
+            let prev_start = self.start.swap(harvesting_start, Ordering::AcqRel);
+            if !prev_start.is_null() {
+                unsafe {
+                    (*prev_start).next.store(harvesting_end, Ordering::Release);
+                }
+            } else {
+                self.end.store(harvesting_end, Ordering::Release);
+            }
+        }
+    }
+
     pub fn swap_to_primary(&self) -> Result<(), &str> {
         let end = self.swap_end.swap(null_mut(), Ordering::AcqRel);
         if !end.is_null() {

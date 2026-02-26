@@ -188,6 +188,32 @@ where
         Ok(())
     }
 
+    pub fn reprt_thread_harvesting(&self) {
+        let start: AtomicPtr<WaitingTask<F, O>> = AtomicPtr::new(null_mut());
+        let end: AtomicPtr<WaitingTask<F, O>> = AtomicPtr::new(null_mut());
+
+        // 2 is size of group(same reprt group)
+        for i in (0..self.total_threads).step_by(2) {
+            unsafe {
+                let (_, group) = &(&*self.pool.load(Ordering::Acquire))[i];
+
+                let group_end = group.end_l_waiting_list.swap(null_mut(), Ordering::AcqRel);
+                if !group_end.is_null() {
+                    let group_start = self.start_l_waiting_list.swap(null_mut(), Ordering::AcqRel);
+
+                    let prev_start = start.swap(group_start, Ordering::AcqRel);
+                    if !prev_start.is_null() {
+                        (*prev_start).next.store(group_end, Ordering::Release);
+                    } else {
+                        end.store(group_end, Ordering::Release);
+                    }
+                }
+            }
+        }
+
+        self.list_core.insert_list_from_harvesting(start, end);
+    }
+
     pub fn running(&self) {
         loop {
             let status = self.harvesting();
@@ -222,6 +248,8 @@ where
                         // empty, swap waiting_task with swap list
                         if let Err(_) = (*self.list_core).swap_to_primary() {
                             // this None, mean empty
+                            // get task from harvesting
+                            self.reprt_thread_harvesting();
                             // release representative thread
                             (*self.reprt_handler).store(true, Ordering::SeqCst);
                             spin_loop();
@@ -230,12 +258,17 @@ where
                         // check, still empty or not
                         if (*self.list_core).is_primary_list_empty() {
                             // empty, that mean swap list its also empty
+                            // get task from harvesting
+                            self.reprt_thread_harvesting();
                             // release representative thread
                             (*self.reprt_handler).store(true, Ordering::SeqCst);
                             spin_loop();
                             continue;
                         };
                     }
+                    // get task from harvesting
+                    self.reprt_thread_harvesting();
+
                     // get waiting_task from primary_list
                     let list_waiting_task = if let Ok(list) =
                         (*self.list_core).get_waiting_task_from_primary_stack::<Q>(self.batch)
