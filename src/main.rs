@@ -1,7 +1,8 @@
 use std::{thread::sleep, time::Duration};
 
 use simboli_thread::{
-    ArrTaskDependenciesTrait, OutputTrait, SimboliThread, SpwanTaskWithDependenciesTrait, TaskTrait,
+    ArrSpwanTaskWithDependenciesTrait, ArrTaskDependenciesTrait, OutputTrait, SimboliThread,
+    TaskTrait,
 };
 
 #[derive(Debug)]
@@ -43,7 +44,7 @@ impl ArrTaskDependenciesTrait<MyTask, MyOuput, 2> for [MyTask; 2] {
     }
 }
 
-impl SpwanTaskWithDependenciesTrait<MyTask, MyOuput, 1> for [MyTask; 1] {
+impl ArrSpwanTaskWithDependenciesTrait<MyTask, MyOuput, 1> for [MyTask; 1] {
     fn task(self) -> [MyTask; 1] {
         self
     }

@@ -26,7 +26,7 @@ where
     pub fn init(counter: usize) -> TaskDependenciesCore<F, O> {
         Self {
             status: true,
-            done: AtomicBool::new(true),
+            done: AtomicBool::new(false),
             counter: AtomicUsize::new(counter),
             start: AtomicPtr::new(null_mut()),
             end: AtomicPtr::new(null_mut()),
@@ -36,7 +36,7 @@ where
     pub fn dummy() -> TaskDependenciesCore<F, O> {
         Self {
             status: false,
-            done: AtomicBool::new(true),
+            done: AtomicBool::new(false),
             counter: AtomicUsize::new(0),
             start: AtomicPtr::new(null_mut()),
             end: AtomicPtr::new(null_mut()),
@@ -61,7 +61,7 @@ where
     fn task_list(self) -> [F; NF];
 }
 
-pub trait SpwanTaskWithDependenciesTrait<F, O, const NF: usize>
+pub trait ArrSpwanTaskWithDependenciesTrait<F, O, const NF: usize>
 where
     F: TaskTrait<O> + Send + 'static,
     O: 'static + OutputTrait,

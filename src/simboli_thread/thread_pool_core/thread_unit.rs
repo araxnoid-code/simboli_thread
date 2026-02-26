@@ -141,6 +141,53 @@ where
         x
     }
 
+    fn harvesting(&self) -> Result<(), ()> {
+        // add reprt_group counter
+        self.reprt_group_counter.fetch_add(1, Ordering::Release);
+        if self.reprt_group_counter.load(Ordering::Acquire) >= 25 {
+            // harvesting!
+            let is_reprt_group = self.reprt_group_handler.swap(false, Ordering::AcqRel);
+            if !is_reprt_group {
+                self.reprt_group_counter.store(0, Ordering::Release);
+                return Err(());
+            }
+
+            let id = self.id as u64;
+            // size each group 2
+            let marking = !((1_u64 << 1) - 1);
+            let index = id & marking;
+
+            unsafe {
+                let pool = &*self.pool.load(Ordering::Acquire);
+                for idx in index..index + 2 {
+                    let (_, harvesting_target) = &pool[idx as usize];
+
+                    let end = harvesting_target
+                        .end_l_waiting_list
+                        .swap(null_mut(), Ordering::AcqRel);
+
+                    if !end.is_null() {
+                        let start = harvesting_target
+                            .start_l_waiting_list
+                            .swap(null_mut(), Ordering::AcqRel);
+
+                        let prev_start = self.start_harvesting_group.swap(start, Ordering::AcqRel);
+
+                        if !prev_start.is_null() {
+                            (*prev_start).next.store(end, Ordering::Release);
+                        } else {
+                            self.end_harvesting_group.store(end, Ordering::Release);
+                        }
+                    }
+                }
+            }
+
+            self.reprt_group_counter.store(0, Ordering::Release);
+            self.reprt_group_handler.store(true, Ordering::Release);
+        }
+        Ok(())
+    }
+
     pub fn running(&self) {
         loop {
             // add reprt_group counter
@@ -150,7 +197,6 @@ where
                 let is_reprt_group = self.reprt_group_handler.swap(false, Ordering::AcqRel);
                 if !is_reprt_group {
                     self.reprt_group_counter.store(0, Ordering::Release);
-                    self.reprt_group_handler.store(true, Ordering::Release);
                     continue;
                 }
 
@@ -184,6 +230,9 @@ where
                         }
                     }
                 }
+
+                self.reprt_group_counter.store(0, Ordering::Release);
+                self.reprt_group_handler.store(true, Ordering::Release);
             }
 
             // is local queue empty?
