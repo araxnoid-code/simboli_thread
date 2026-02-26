@@ -37,6 +37,8 @@ where
     pub(crate) reprt_group_counter: AtomicUsize,
     pub(crate) start_l_waiting_list: AtomicPtr<WaitingTask<F, O>>,
     pub(crate) end_l_waiting_list: AtomicPtr<WaitingTask<F, O>>,
+    pub(crate) start_harvesting_group: Arc<AtomicPtr<WaitingTask<F, O>>>,
+    pub(crate) end_harvesting_group: Arc<AtomicPtr<WaitingTask<F, O>>>,
 
     // share
     // // thread_pool
@@ -83,6 +85,8 @@ where
         pool: Arc<AtomicPtr<Vec<(Option<JoinHandle<()>>, Arc<ThreadUnit<F, O, Q>>)>>>,
         list_core: Arc<ListCore<F, O>>,
         reprt_group_handler: Arc<AtomicBool>,
+        start_harvesting_group: Arc<AtomicPtr<WaitingTask<F, O>>>,
+        end_harvesting_group: Arc<AtomicPtr<WaitingTask<F, O>>>,
     ) -> Result<ThreadUnit<F, O, Q>, &'static str> {
         let mut queue_vector = Vec::with_capacity(Q);
         for _ in 0..Q {
@@ -119,6 +123,8 @@ where
 
             reprt_group_handler,
             reprt_group_counter: AtomicUsize::new(0),
+            start_harvesting_group,
+            end_harvesting_group,
             start_l_waiting_list: AtomicPtr::new(null_mut()),
             end_l_waiting_list: AtomicPtr::new(null_mut()),
 
@@ -157,13 +163,24 @@ where
                     let pool = &*self.pool.load(Ordering::Acquire);
                     for idx in index..index + 2 {
                         let (_, harvesting_target) = &pool[idx as usize];
+
                         let end = harvesting_target
                             .end_l_waiting_list
                             .swap(null_mut(), Ordering::AcqRel);
 
-                        if end.is_null() {
-                            let start =
-                                self.start_l_waiting_list.swap(null_mut(), Ordering::AcqRel);
+                        if !end.is_null() {
+                            let start = harvesting_target
+                                .start_l_waiting_list
+                                .swap(null_mut(), Ordering::AcqRel);
+
+                            let prev_start =
+                                self.start_harvesting_group.swap(start, Ordering::AcqRel);
+
+                            if !prev_start.is_null() {
+                                (*prev_start).next.store(end, Ordering::Release);
+                            } else {
+                                self.end_harvesting_group.store(end, Ordering::Release);
+                            }
                         }
                     }
                 }

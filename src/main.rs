@@ -1,6 +1,8 @@
 use std::{thread::sleep, time::Duration};
 
-use simboli_thread::{ArrTaskDependenciesTrait, OutputTrait, SimboliThread, TaskTrait};
+use simboli_thread::{
+    ArrTaskDependenciesTrait, OutputTrait, SimboliThread, SpwanTaskWithDependenciesTrait, TaskTrait,
+};
 
 #[derive(Debug)]
 enum MyOuput {
@@ -26,10 +28,10 @@ fn main() {
     println!("{:08b}", marking);
     println!("{:08b} => {}", result, result);
 
-    // let thread_pool = SimboliThread::<MyTask, MyOuput, 8, 32>::init();
+    let thread_pool = SimboliThread::<MyTask, MyOuput, 8, 32>::init();
 
-    // let my_dependencies = [MyTask(|| MyOuput::Int), MyTask(|| MyOuput::String)];
-    // let my_waiting = thread_pool.spawn_task_dependencies(my_dependencies);
+    let my_dependencies = [MyTask(|| MyOuput::Int), MyTask(|| MyOuput::String)];
+    let my_waiting = thread_pool.spawn_task_dependencies(my_dependencies);
 
     // let array: [i32; 10];
     // println!("{:?}", array);
@@ -37,6 +39,12 @@ fn main() {
 
 impl ArrTaskDependenciesTrait<MyTask, MyOuput, 2> for [MyTask; 2] {
     fn task_list(self) -> [MyTask; 2] {
+        self
+    }
+}
+
+impl SpwanTaskWithDependenciesTrait<MyTask, MyOuput, 1> for [MyTask; 1] {
+    fn task(self) -> [MyTask; 1] {
         self
     }
 }

@@ -52,6 +52,10 @@ where
         // // default for now
         let size = 2;
         let mut reprt_group_handler = Arc::new(AtomicBool::new(true));
+        let mut start_harvesting_group: Arc<AtomicPtr<WaitingTask<F, O>>> =
+            Arc::new(AtomicPtr::new(null_mut()));
+        let mut end_harvesting_group: Arc<AtomicPtr<WaitingTask<F, O>>> =
+            Arc::new(AtomicPtr::new(null_mut()));
 
         // sync, ensure all threads are initialized before running
         let start_handler = Arc::new(AtomicBool::new(false));
@@ -72,7 +76,11 @@ where
             // reprt_group_handler, update every 2
             if id % size == 0 {
                 reprt_group_handler = Arc::new(AtomicBool::new(true));
+                start_harvesting_group = Arc::new(AtomicPtr::new(null_mut()));
+                end_harvesting_group = Arc::new(AtomicPtr::new(null_mut()));
             }
+            let start_harvesting_group_clone = start_harvesting_group.clone();
+            let end_harvesting_group_clone = end_harvesting_group.clone();
             let reprt_group_handler_clone = reprt_group_handler.clone();
 
             // sync clone
@@ -93,6 +101,8 @@ where
                         pool_clone,
                         list_core_clone,
                         reprt_group_handler_clone,
+                        start_harvesting_group_clone,
+                        end_harvesting_group_clone,
                     )
                     .unwrap(),
                 );

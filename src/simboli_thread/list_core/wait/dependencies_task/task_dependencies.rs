@@ -60,3 +60,11 @@ where
 {
     fn task_list(self) -> [F; NF];
 }
+
+pub trait SpwanTaskWithDependenciesTrait<F, O, const NF: usize>
+where
+    F: TaskTrait<O> + Send + 'static,
+    O: 'static + OutputTrait,
+{
+    fn task(self) -> [F; NF];
+}
