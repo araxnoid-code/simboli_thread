@@ -468,7 +468,6 @@ where
                         task.waiting_return_ptr.store(output, Ordering::Release);
 
                         // dependencies handler
-                        // self.dependencies_handler(task);
                         self.dependencies_handler_type_2(task);
 
                         // update counter
@@ -527,13 +526,6 @@ where
                     self.end_l_waiting_list
                         .store(end_waiting_task, Ordering::Release);
                 }
-            }
-        }
-
-        let next_ptr = task.next.swap(null_mut(), Ordering::AcqRel);
-        if !next_ptr.is_null() {
-            unsafe {
-                drop(Box::from_raw(next_ptr));
             }
         }
 

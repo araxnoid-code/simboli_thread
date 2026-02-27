@@ -3,7 +3,7 @@ use std::{
     sync::atomic::{AtomicBool, AtomicPtr, AtomicUsize},
 };
 
-use crate::{OutputTrait, TaskTrait, Waiting, WaitingTask};
+use crate::{OutputTrait, TaskTrait, WaitingTask, simboli_thread::list_core::Waiting};
 
 // will be shared. to Waiting<O> and WaitingTask<F, O>
 pub struct TaskDependenciesCore<F, O>
@@ -61,10 +61,10 @@ where
     fn task_list(self) -> [F; NF];
 }
 
-pub trait ArrSpwanTaskWithDependenciesTrait<F, O, const NF: usize>
-where
-    F: TaskTrait<O> + Send + 'static,
-    O: 'static + OutputTrait,
-{
-    fn task(self) -> [F; NF];
-}
+// pub trait ArrSpwanTaskWithDependenciesTrait<F, O, const NF: usize>
+// where
+//     F: TaskTrait<O> + Send + 'static,
+//     O: 'static + OutputTrait,
+// {
+//     fn task(self) -> [F; NF];
+// }

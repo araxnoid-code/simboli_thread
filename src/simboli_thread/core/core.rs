@@ -1,8 +1,8 @@
 use std::sync::Arc;
 
 use crate::{
-    ArrTaskDependenciesTrait, ListCore, OutputTrait, TaskDependencies, TaskTrait, ThreadPoolCore,
-    simboli_thread::list_core::Waiting,
+    ListCore, OutputTrait, TaskDependencies, TaskTrait, ThreadPoolCore,
+    simboli_thread::list_core::{ArrTaskDependenciesTrait, Waiting},
 };
 
 pub struct SimboliThread<F, O, const N: usize, const Q: usize>
@@ -42,6 +42,15 @@ where
         D: ArrTaskDependenciesTrait<F, O, NF>,
     {
         self.list_core.spawn_task_dependencies(dependencies)
+    }
+
+    pub fn spawn_task_with_dependencies(
+        &self,
+        task: F,
+        dependencies: TaskDependencies<F, O>,
+    ) -> Waiting<O> {
+        self.list_core
+            .spawn_task_with_dependencies(task, dependencies)
     }
 
     /// joining threads in thread pools, does not ensure that all tasks have completed execution before the thread stops

@@ -8,9 +8,10 @@ use std::{
 };
 
 use crate::{
-    ArrTaskDependenciesTrait, TaskDependencies, TaskDependenciesCore,
+    TaskDependencies,
     simboli_thread::list_core::{
-        OutputTrait, TaskTrait, Waiting, WaitingTask, task_list::TaskList,
+        ArrTaskDependenciesTrait, OutputTrait, TaskDependenciesCore, TaskTrait, Waiting,
+        WaitingTask, task_list::TaskList,
     },
 };
 
@@ -243,6 +244,8 @@ where
         } else {
             self.spawn_task_with_dependencies_normal(waiting_task_ptr, return_ptr);
         };
+
+        self.spawn_task_with_dependencies_normal(waiting_task_ptr, return_ptr);
 
         Waiting {
             data_ptr: return_ptr,
