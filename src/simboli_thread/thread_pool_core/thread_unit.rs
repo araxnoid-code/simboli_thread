@@ -143,15 +143,14 @@ where
 
     fn harvesting(&self) -> Result<(), ()> {
         // add reprt_group counter
-        self.reprt_group_counter.fetch_add(1, Ordering::Release);
-        if self.reprt_group_counter.load(Ordering::Acquire) >= 25 {
+        let reprt_group_counter = self.reprt_group_counter.fetch_add(1, Ordering::Release);
+        if reprt_group_counter >= 32 {
             // harvesting!
             let is_reprt_group = self.reprt_group_handler.swap(false, Ordering::AcqRel);
             if !is_reprt_group {
                 self.reprt_group_counter.store(0, Ordering::Release);
                 return Err(());
             }
-
             let id = self.id as u64;
             // size each group 2
             let marking = !((1_u64 << 1) - 1);
@@ -197,9 +196,14 @@ where
             unsafe {
                 let (_, group) = &(&*self.pool.load(Ordering::Acquire))[i];
 
-                let group_end = group.end_l_waiting_list.swap(null_mut(), Ordering::AcqRel);
+                let group_end = group
+                    .end_harvesting_group
+                    .swap(null_mut(), Ordering::AcqRel);
+
                 if !group_end.is_null() {
-                    let group_start = self.start_l_waiting_list.swap(null_mut(), Ordering::AcqRel);
+                    let group_start = self
+                        .start_harvesting_group
+                        .swap(null_mut(), Ordering::AcqRel);
 
                     let prev_start = start.swap(group_start, Ordering::AcqRel);
                     if !prev_start.is_null() {
@@ -468,7 +472,7 @@ where
                         task.waiting_return_ptr.store(output, Ordering::Release);
 
                         // dependencies handler
-                        self.dependencies_handler_type_2(task);
+                        let _ = self.dependencies_handler_type_2(task);
 
                         // update counter
                         self.done_task.fetch_add(1, Ordering::SeqCst);
@@ -481,8 +485,18 @@ where
         }
     }
 
-    pub fn dependencies_handler_type_2(&self, task: Box<WaitingTask<F, O>>) {
+    pub fn dependencies_handler_type_2(&self, task: Box<WaitingTask<F, O>>) -> Result<(), ()> {
         if task.task_dependencies_ptr.status {
+            // update counter
+            let counter = task
+                .task_dependencies_ptr
+                .counter
+                .fetch_sub(1, Ordering::Release);
+
+            if counter - 1 != 0 {
+                return Err(());
+            }
+
             // update done flag
             task.task_dependencies_ptr
                 .done
@@ -530,6 +544,8 @@ where
         }
 
         drop(task);
+
+        Ok(())
     }
 
     pub fn dependencies_handler(&self, task: Box<WaitingTask<F, O>>) {

@@ -245,8 +245,6 @@ where
             self.spawn_task_with_dependencies_normal(waiting_task_ptr, return_ptr);
         };
 
-        self.spawn_task_with_dependencies_normal(waiting_task_ptr, return_ptr);
-
         Waiting {
             data_ptr: return_ptr,
             data: None,
