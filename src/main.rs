@@ -1,32 +1,55 @@
 use std::{thread::sleep, time::Duration};
 
-use simboli_thread::{ArrTaskDependenciesTrait, OutputTrait, SimboliThread, TaskTrait};
+use simboli_thread::{
+    ArrTaskDependenciesTrait, OutputTrait, SimboliThread, TaskDependencies, TaskTrait,
+};
 
 #[derive(Debug)]
 enum MyOuput {
     String,
     Int,
+    None,
 }
 impl OutputTrait for MyOuput {}
 
-struct MyTask(fn() -> MyOuput);
+enum MyTask {
+    Exec(fn() -> MyOuput),
+    WithDependencies(fn(&'static TaskDependencies<MyTask, MyOuput>) -> MyOuput),
+}
+
+unsafe impl Send for MyTask {}
 
 impl TaskTrait<MyOuput> for MyTask {
     fn exec(&self) -> MyOuput {
-        (self.0)()
+        match self {
+            MyTask::Exec(f) => f(),
+            _ => MyOuput::None,
+        }
     }
+
+    // fn exec_with_dependencies<F>(
+    //     &self,
+    //     task_dependecies: &'static TaskDependencies<F, MyOuput>,
+    // ) -> MyOuput
+    // where
+    //     F: TaskTrait<MyOuput> + 'static + Send,
+    // {
+    //     MyOuput::None
+    // }
 }
 
 fn main() {
     let thread_pool = SimboliThread::<MyTask, MyOuput, 2, 32>::init();
 
     let my_dependencies = [
-        MyTask(|| {
+        MyTask::Exec(|| {
+            sleep(Duration::from_millis(2000));
             println!("task 1 done");
             MyOuput::Int
         }),
-        MyTask(|| {
-            eprintln!("task 2 done");
+        MyTask::Exec(|| {
+            sleep(Duration::from_millis(1000));
+            println!("task 2 done");
             MyOuput::String
         }),
     ];
@@ -34,19 +57,14 @@ fn main() {
     let waiting_dependencies = thread_pool.spawn_task_dependencies(my_dependencies);
 
     thread_pool.spawn_task_with_dependencies(
-        MyTask(|| {
+        MyTask::Exec(|| {
             println!("running and done");
             MyOuput::String
         }),
         waiting_dependencies,
     );
 
-    // loop {}
     thread_pool.join();
-    // let output = waiting_dependencies.waiting_list.;
-
-    // let array: [i32; 10];
-    // println!("{:?}", array);
 }
 
 impl ArrTaskDependenciesTrait<MyTask, MyOuput, 2> for [MyTask; 2] {

@@ -486,10 +486,10 @@ where
     }
 
     pub fn dependencies_handler_type_2(&self, task: Box<WaitingTask<F, O>>) -> Result<(), ()> {
-        if task.task_dependencies_ptr.status {
+        if task.task_dependencies_core_ptr.status {
             // update counter
             let counter = task
-                .task_dependencies_ptr
+                .task_dependencies_core_ptr
                 .counter
                 .fetch_sub(1, Ordering::Release);
 
@@ -498,16 +498,21 @@ where
             }
 
             // update done flag
-            task.task_dependencies_ptr
+            task.task_dependencies_core_ptr
                 .done
                 .store(true, Ordering::Release);
 
-            let check_task = task.task_dependencies_ptr.start.load(Ordering::Acquire);
+            let check_task = task
+                .task_dependencies_core_ptr
+                .start
+                .load(Ordering::Acquire);
             if !check_task.is_null() {
                 // CAS RETRY LOOP
                 let start_waiting_task = loop {
-                    let status = task.task_dependencies_ptr.start.compare_exchange(
-                        task.task_dependencies_ptr.start.load(Ordering::Acquire),
+                    let status = task.task_dependencies_core_ptr.start.compare_exchange(
+                        task.task_dependencies_core_ptr
+                            .start
+                            .load(Ordering::Acquire),
                         null_mut(),
                         Ordering::AcqRel,
                         Ordering::Acquire,
@@ -522,7 +527,7 @@ where
                 };
 
                 let end_waiting_task = task
-                    .task_dependencies_ptr
+                    .task_dependencies_core_ptr
                     .end
                     .swap(null_mut(), Ordering::Acquire);
 
@@ -546,59 +551,5 @@ where
         drop(task);
 
         Ok(())
-    }
-
-    pub fn dependencies_handler(&self, task: Box<WaitingTask<F, O>>) {
-        if task.task_dependencies_ptr.status {
-            let mut activity = task.task_dependencies_ptr.done.swap(true, Ordering::AcqRel);
-
-            // check,
-            while !activity {
-                spin_loop();
-                activity = task
-                    .task_dependencies_ptr
-                    .done
-                    .swap(false, Ordering::AcqRel);
-            }
-
-            // get start and end
-            let dependencies_start = task
-                .task_dependencies_ptr
-                .start
-                .swap(null_mut(), Ordering::AcqRel);
-
-            let dependencies_end = task
-                .task_dependencies_ptr
-                .end
-                .swap(null_mut(), Ordering::AcqRel);
-
-            // check dependencies counter
-            if task.task_dependencies_ptr.counter.load(Ordering::Acquire) <= 0 {
-                // update dependencies counter
-                task.task_dependencies_ptr
-                    .counter
-                    .fetch_sub(1, Ordering::Release);
-
-                if !dependencies_start.is_null() {
-                    // not empty
-                    let start_task_waiting = self
-                        .start_l_waiting_list
-                        .swap(dependencies_start, Ordering::AcqRel);
-
-                    if !start_task_waiting.is_null() {
-                        unsafe {
-                            (*start_task_waiting)
-                                .next
-                                .store(dependencies_end, Ordering::Release);
-                        }
-                    } else {
-                        self.end_l_waiting_list
-                            .store(dependencies_end, Ordering::Release);
-                    }
-                }
-            }
-        }
-
-        drop(task);
     }
 }

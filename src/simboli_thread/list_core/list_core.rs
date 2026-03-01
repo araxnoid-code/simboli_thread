@@ -161,6 +161,8 @@ where
         dependencies: TaskDependencies<F, O>,
     ) -> Waiting<O> {
         // main thread only focus in swap queue, base on swap start
+        // dependecies leak
+        let dependencies_ptr: &'static TaskDependencies<F, O> = Box::leak(Box::new(dependencies));
         // update in_task handler
         self.in_task.fetch_add(1, Ordering::SeqCst);
         // create return_ptr
@@ -171,32 +173,36 @@ where
             task,
             next: AtomicPtr::new(ptr::null_mut()),
             waiting_return_ptr: return_ptr,
-            task_dependencies_ptr: Box::leak(Box::new(TaskDependenciesCore::dummy())),
+            task_dependencies_core_ptr: Box::leak(Box::new(TaskDependenciesCore::blank())),
+            task_dependencies_ptr: dependencies_ptr,
         };
 
         let waiting_task_ptr = Box::into_raw(Box::new(waiting_task));
         // check depencies
-        if !dependencies
+        if !dependencies_ptr
             .task_dependencies_ptr
             .done
             .load(Ordering::SeqCst)
         {
             // insert into depencies waiting
 
-            let status = dependencies.task_dependencies_ptr.start.compare_exchange(
-                dependencies
-                    .task_dependencies_ptr
-                    .start
-                    .load(Ordering::Acquire),
-                waiting_task_ptr,
-                Ordering::AcqRel,
-                Ordering::Acquire,
-            );
+            let status = dependencies_ptr
+                .task_dependencies_ptr
+                .start
+                .compare_exchange(
+                    dependencies_ptr
+                        .task_dependencies_ptr
+                        .start
+                        .load(Ordering::Acquire),
+                    waiting_task_ptr,
+                    Ordering::AcqRel,
+                    Ordering::Acquire,
+                );
 
             if let Ok(prev_waiting_task) = status {
                 if prev_waiting_task.is_null() {
                     // chek again
-                    if !dependencies
+                    if !dependencies_ptr
                         .task_dependencies_ptr
                         .done
                         .load(Ordering::SeqCst)
@@ -208,21 +214,21 @@ where
                                     .store(waiting_task_ptr, Ordering::Release);
                             }
                         } else {
-                            dependencies
+                            dependencies_ptr
                                 .task_dependencies_ptr
                                 .end
                                 .store(waiting_task_ptr, Ordering::Release);
                         }
                     } else {
-                        dependencies
+                        dependencies_ptr
                             .task_dependencies_ptr
                             .end
                             .store(null_mut(), Ordering::Release);
-                        dependencies
+                        dependencies_ptr
                             .task_dependencies_ptr
                             .start
                             .store(null_mut(), Ordering::Release);
-                        self.spawn_task_with_dependencies_normal(waiting_task_ptr, return_ptr);
+                        self.spawn_task_with_dependencies_normal(waiting_task_ptr);
                     };
                 } else {
                     if !prev_waiting_task.is_null() {
@@ -232,17 +238,17 @@ where
                                 .store(waiting_task_ptr, Ordering::Release);
                         }
                     } else {
-                        dependencies
+                        dependencies_ptr
                             .task_dependencies_ptr
                             .end
                             .store(waiting_task_ptr, Ordering::Release);
                     }
                 }
             } else {
-                self.spawn_task_with_dependencies_normal(waiting_task_ptr, return_ptr);
+                self.spawn_task_with_dependencies_normal(waiting_task_ptr);
             }
         } else {
-            self.spawn_task_with_dependencies_normal(waiting_task_ptr, return_ptr);
+            self.spawn_task_with_dependencies_normal(waiting_task_ptr);
         };
 
         Waiting {
@@ -251,11 +257,7 @@ where
         }
     }
 
-    fn spawn_task_with_dependencies_normal(
-        &self,
-        waiting_task_ptr: *mut WaitingTask<F, O>,
-        return_ptr: &'static AtomicPtr<O>,
-    ) {
+    fn spawn_task_with_dependencies_normal(&self, waiting_task_ptr: *mut WaitingTask<F, O>) {
         // swap start with new waiting task
         let pre_start_task = self.swap_start.swap(waiting_task_ptr, Ordering::AcqRel);
         if !pre_start_task.is_null() {
@@ -297,7 +299,8 @@ where
                 task,
                 next: AtomicPtr::new(ptr::null_mut()),
                 waiting_return_ptr: return_ptr,
-                task_dependencies_ptr: task_dependencies_ptr,
+                task_dependencies_core_ptr: task_dependencies_ptr,
+                task_dependencies_ptr: Box::leak(Box::new(TaskDependencies::blank())),
             };
 
             let waiting_task_ptr = Box::into_raw(Box::new(waiting_task));
@@ -339,7 +342,8 @@ where
             task,
             next: AtomicPtr::new(ptr::null_mut()),
             waiting_return_ptr: return_ptr,
-            task_dependencies_ptr: Box::leak(Box::new(TaskDependenciesCore::dummy())),
+            task_dependencies_core_ptr: Box::leak(Box::new(TaskDependenciesCore::blank())),
+            task_dependencies_ptr: Box::leak(Box::new(TaskDependencies::blank())),
         };
 
         let waiting_task_ptr = Box::into_raw(Box::new(waiting_task));

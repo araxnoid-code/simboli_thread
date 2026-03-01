@@ -33,7 +33,7 @@ where
         }
     }
 
-    pub fn dummy() -> TaskDependenciesCore<F, O> {
+    pub fn blank() -> TaskDependenciesCore<F, O> {
         Self {
             status: false,
             done: AtomicBool::new(false),
@@ -53,6 +53,19 @@ where
     pub waiting_list: Vec<Waiting<O>>,
 }
 
+impl<F, O> TaskDependencies<F, O>
+where
+    F: TaskTrait<O> + Send + 'static,
+    O: 'static + OutputTrait,
+{
+    pub fn blank() -> TaskDependencies<F, O> {
+        Self {
+            task_dependencies_ptr: Box::leak(Box::new(TaskDependenciesCore::blank())),
+            waiting_list: vec![],
+        }
+    }
+}
+
 pub trait ArrTaskDependenciesTrait<F, O, const NF: usize>
 where
     F: TaskTrait<O> + Send + 'static,
@@ -60,11 +73,3 @@ where
 {
     fn task_list(self) -> [F; NF];
 }
-
-// pub trait ArrSpwanTaskWithDependenciesTrait<F, O, const NF: usize>
-// where
-//     F: TaskTrait<O> + Send + 'static,
-//     O: 'static + OutputTrait,
-// {
-//     fn task(self) -> [F; NF];
-// }
