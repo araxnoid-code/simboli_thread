@@ -6,22 +6,24 @@ use std::{
         atomic::{AtomicBool, AtomicPtr, AtomicU64, Ordering},
         mpsc,
     },
-    thread::{self, JoinHandle},
+    thread::{self, JoinHandle, sleep},
+    time::Duration,
 };
 
 use crate::{
-    ListCore, OutputTrait, TaskTrait, WaitingTask,
+    ListCore, OutputTrait, TaskTrait, TaskWithDependenciesTrait, WaitingTask,
     simboli_thread::thread_pool_core::thread_unit::ThreadUnit,
 };
 
-pub struct ThreadPoolCore<F, O, const N: usize, const Q: usize>
+pub struct ThreadPoolCore<F, FD, O, const N: usize, const Q: usize>
 where
     F: TaskTrait<O> + 'static + Send,
-    O: 'static + OutputTrait,
+    FD: TaskWithDependenciesTrait<O> + Send + 'static,
+    O: 'static + OutputTrait + Send,
 {
     // main thread pool
     pub(crate) queue_size: usize,
-    pub(crate) pool: Arc<AtomicPtr<Vec<(Option<JoinHandle<()>>, Arc<ThreadUnit<F, O, Q>>)>>>,
+    pub(crate) pool: Arc<AtomicPtr<Vec<(Option<JoinHandle<()>>, Arc<ThreadUnit<F, FD, O, Q>>)>>>,
 
     // handler
     pub(crate) reprt_handler: Arc<AtomicBool>,
@@ -29,15 +31,16 @@ where
     pub(crate) join_flag: Arc<AtomicBool>,
 
     // list core
-    list_core: Arc<ListCore<F, O>>,
+    list_core: Arc<ListCore<F, FD, O>>,
 }
 
-impl<F, O, const N: usize, const Q: usize> ThreadPoolCore<F, O, N, Q>
+impl<F, FD, O, const N: usize, const Q: usize> ThreadPoolCore<F, FD, O, N, Q>
 where
     F: TaskTrait<O> + 'static + Send,
-    O: OutputTrait,
+    FD: TaskWithDependenciesTrait<O> + Send + 'static,
+    O: OutputTrait + Send,
 {
-    pub fn init(list_core: Arc<ListCore<F, O>>) -> ThreadPoolCore<F, O, N, Q> {
+    pub fn init(list_core: Arc<ListCore<F, FD, O>>) -> ThreadPoolCore<F, FD, O, N, Q> {
         // handler
         let reprt_handler = Arc::new(AtomicBool::new(true));
         let join_flag = Arc::new(AtomicBool::new(false));
@@ -52,9 +55,9 @@ where
         // // default for now
         let size = 2;
         let mut reprt_group_handler = Arc::new(AtomicBool::new(true));
-        let mut start_harvesting_group: Arc<AtomicPtr<WaitingTask<F, O>>> =
+        let mut start_harvesting_group: Arc<AtomicPtr<WaitingTask<F, FD, O>>> =
             Arc::new(AtomicPtr::new(null_mut()));
-        let mut end_harvesting_group: Arc<AtomicPtr<WaitingTask<F, O>>> =
+        let mut end_harvesting_group: Arc<AtomicPtr<WaitingTask<F, FD, O>>> =
             Arc::new(AtomicPtr::new(null_mut()));
 
         // sync, ensure all threads are initialized before running
@@ -79,9 +82,9 @@ where
                 start_harvesting_group = Arc::new(AtomicPtr::new(null_mut()));
                 end_harvesting_group = Arc::new(AtomicPtr::new(null_mut()));
             }
+            let reprt_group_handler_clone = reprt_group_handler.clone();
             let start_harvesting_group_clone = start_harvesting_group.clone();
             let end_harvesting_group_clone = end_harvesting_group.clone();
-            let reprt_group_handler_clone = reprt_group_handler.clone();
 
             // sync clone
             let start_handler_clone = start_handler.clone();
@@ -92,7 +95,7 @@ where
             // spawn thread
             let spawn = thread::spawn(move || {
                 let thread_unit = Arc::new(
-                    ThreadUnit::<F, O, Q>::init(
+                    ThreadUnit::<F, FD, O, Q>::init(
                         id,
                         N,
                         reprt_handler_clone,
@@ -108,6 +111,7 @@ where
                 );
 
                 // give thread to thread pool
+                sleep(Duration::from_millis((1 * id) as u64));
                 tx_clone.send(thread_unit.clone()).unwrap();
 
                 // waiting
@@ -167,6 +171,12 @@ where
         unsafe {
             // check, all task done
             loop {
+                // println!(
+                //     "{} / {}",
+                //     self.list_core.in_task.load(Ordering::SeqCst),
+                //     self.done_task.load(Ordering::SeqCst)
+                // );
+                // sleep(Duration::from_millis(1000));
                 if self.list_core.in_task.load(Ordering::SeqCst)
                     <= self.done_task.load(Ordering::SeqCst)
                 {

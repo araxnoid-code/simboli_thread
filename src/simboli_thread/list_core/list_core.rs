@@ -8,37 +8,40 @@ use std::{
 };
 
 use crate::{
-    TaskDependencies,
+    ArrTaskDependenciesWithDependenciesTrait, ExecTask, TaskDependencies,
+    TaskWithDependenciesTrait,
     simboli_thread::list_core::{
         ArrTaskDependenciesTrait, OutputTrait, TaskDependenciesCore, TaskTrait, Waiting,
         WaitingTask, task_list::TaskList,
     },
 };
 
-pub struct ListCore<F, O>
+pub struct ListCore<F, FD, O>
 where
     F: TaskTrait<O> + Send + 'static,
-    O: 'static + OutputTrait,
+    FD: TaskWithDependenciesTrait<O> + Send + 'static,
+    O: 'static + OutputTrait + Send,
 {
     // primary Stack
     id_counter: AtomicU64,
-    start: AtomicPtr<WaitingTask<F, O>>,
-    end: AtomicPtr<WaitingTask<F, O>>,
+    start: AtomicPtr<WaitingTask<F, FD, O>>,
+    end: AtomicPtr<WaitingTask<F, FD, O>>,
 
     // handler
     pub(crate) in_task: Arc<AtomicU64>,
 
     // Swap Stack
-    swap_start: AtomicPtr<WaitingTask<F, O>>,
-    swap_end: AtomicPtr<WaitingTask<F, O>>,
+    swap_start: AtomicPtr<WaitingTask<F, FD, O>>,
+    swap_end: AtomicPtr<WaitingTask<F, FD, O>>,
 }
 
-impl<F, O> ListCore<F, O>
+impl<F, FD, O> ListCore<F, FD, O>
 where
     F: TaskTrait<O> + Send + 'static,
-    O: 'static + OutputTrait,
+    FD: TaskWithDependenciesTrait<O> + Send + 'static,
+    O: 'static + OutputTrait + Send,
 {
-    pub fn init() -> ListCore<F, O> {
+    pub fn init() -> ListCore<F, FD, O> {
         Self {
             // primary Stack
             id_counter: AtomicU64::new(0),
@@ -61,7 +64,7 @@ where
     pub fn get_waiting_task_from_primary_stack<const N: usize>(
         &self,
         len: u32,
-    ) -> Result<TaskList<F, O, N>, &str> {
+    ) -> Result<TaskList<F, FD, O, N>, &str> {
         let start_waiting_task = self.start.load(Ordering::Acquire);
 
         // scanning start from "end"
@@ -125,8 +128,8 @@ where
 
     pub fn insert_list_from_harvesting(
         &self,
-        harvesting_start: AtomicPtr<WaitingTask<F, O>>,
-        harvesting_end: AtomicPtr<WaitingTask<F, O>>,
+        harvesting_start: AtomicPtr<WaitingTask<F, FD, O>>,
+        harvesting_end: AtomicPtr<WaitingTask<F, FD, O>>,
     ) {
         // insert_list_from_harvesting, must not null
         let harvesting_end = harvesting_end.swap(null_mut(), Ordering::AcqRel);
@@ -155,54 +158,94 @@ where
         }
     }
 
+    pub fn spawn_task_dependencies_with_dependencies<D, const NF: usize>(
+        &self,
+        dependencies: D,
+        with_dependencies: &TaskDependencies<F, FD, O>,
+    ) -> TaskDependencies<F, FD, O>
+    where
+        D: ArrTaskDependenciesWithDependenciesTrait<FD, O, NF>,
+    {
+        // create dependencies
+        let task_dependencies_core_ptr: &'static TaskDependenciesCore<F, FD, O> =
+            Box::leak(Box::new(TaskDependenciesCore::init(NF)));
+
+        // output
+        let mut waiting_output = Vec::with_capacity(NF);
+
+        // task_dependencies
+        for task in dependencies.task_list() {
+            // create waiting task
+            if task.is_with_dependencies() {
+                let waiting_task = self.spawn_task_with_dependencies(
+                    task,
+                    with_dependencies,
+                    Some(task_dependencies_core_ptr),
+                );
+                waiting_output.push(waiting_task);
+            } else {
+                let waiting_task = self.spawn_task_fd(task, Some(task_dependencies_core_ptr));
+                waiting_output.push(waiting_task);
+            }
+        }
+
+        let waiting_output_leak: &'static mut Vec<Waiting<O>> = Box::leak(Box::new(waiting_output));
+        TaskDependencies {
+            waiting_list: waiting_output_leak,
+            task_dependencies_ptr: task_dependencies_core_ptr,
+        }
+    }
+
     pub fn spawn_task_with_dependencies(
         &self,
-        task: F,
-        dependencies: TaskDependencies<F, O>,
+        task: FD,
+        dependencies: &TaskDependencies<F, FD, O>,
+        task_dependencies_core_ptr: Option<&'static TaskDependenciesCore<F, FD, O>>,
     ) -> Waiting<O> {
         // main thread only focus in swap queue, base on swap start
         // dependecies leak
-        let dependencies_ptr: &'static TaskDependencies<F, O> = Box::leak(Box::new(dependencies));
+        // let dependencies: &'static TaskDependencies<F, O> = Box::leak(Box::new(dependencies));
         // update in_task handler
         self.in_task.fetch_add(1, Ordering::SeqCst);
         // create return_ptr
         let return_ptr: &'static AtomicPtr<O> = Box::leak(Box::new(AtomicPtr::new(null_mut())));
         // create waiting task
+
         let waiting_task = WaitingTask {
             id: self.id_counter.fetch_add(1, Ordering::Release),
-            task,
+            task: ExecTask::TaskWithDependencies(task),
             next: AtomicPtr::new(ptr::null_mut()),
             waiting_return_ptr: return_ptr,
-            task_dependencies_core_ptr: Box::leak(Box::new(TaskDependenciesCore::blank())),
-            task_dependencies_ptr: dependencies_ptr,
+            task_dependencies_core_ptr: if let Some(ptr) = task_dependencies_core_ptr {
+                ptr
+            } else {
+                Box::leak(Box::new(TaskDependenciesCore::blank()))
+            },
+            task_dependencies_ptr: dependencies.waiting_list,
         };
 
         let waiting_task_ptr = Box::into_raw(Box::new(waiting_task));
         // check depencies
-        if !dependencies_ptr
+        if !dependencies
             .task_dependencies_ptr
             .done
             .load(Ordering::SeqCst)
         {
             // insert into depencies waiting
-
-            let status = dependencies_ptr
-                .task_dependencies_ptr
-                .start
-                .compare_exchange(
-                    dependencies_ptr
-                        .task_dependencies_ptr
-                        .start
-                        .load(Ordering::Acquire),
-                    waiting_task_ptr,
-                    Ordering::AcqRel,
-                    Ordering::Acquire,
-                );
+            let status = dependencies.task_dependencies_ptr.start.compare_exchange(
+                dependencies
+                    .task_dependencies_ptr
+                    .start
+                    .load(Ordering::Acquire),
+                waiting_task_ptr,
+                Ordering::AcqRel,
+                Ordering::Acquire,
+            );
 
             if let Ok(prev_waiting_task) = status {
                 if prev_waiting_task.is_null() {
                     // chek again
-                    if !dependencies_ptr
+                    if !dependencies
                         .task_dependencies_ptr
                         .done
                         .load(Ordering::SeqCst)
@@ -214,17 +257,17 @@ where
                                     .store(waiting_task_ptr, Ordering::Release);
                             }
                         } else {
-                            dependencies_ptr
+                            dependencies
                                 .task_dependencies_ptr
                                 .end
                                 .store(waiting_task_ptr, Ordering::Release);
                         }
                     } else {
-                        dependencies_ptr
+                        dependencies
                             .task_dependencies_ptr
                             .end
                             .store(null_mut(), Ordering::Release);
-                        dependencies_ptr
+                        dependencies
                             .task_dependencies_ptr
                             .start
                             .store(null_mut(), Ordering::Release);
@@ -238,7 +281,7 @@ where
                                 .store(waiting_task_ptr, Ordering::Release);
                         }
                     } else {
-                        dependencies_ptr
+                        dependencies
                             .task_dependencies_ptr
                             .end
                             .store(waiting_task_ptr, Ordering::Release);
@@ -253,11 +296,10 @@ where
 
         Waiting {
             data_ptr: return_ptr,
-            data: None,
         }
     }
 
-    fn spawn_task_with_dependencies_normal(&self, waiting_task_ptr: *mut WaitingTask<F, O>) {
+    fn spawn_task_with_dependencies_normal(&self, waiting_task_ptr: *mut WaitingTask<F, FD, O>) {
         // swap start with new waiting task
         let pre_start_task = self.swap_start.swap(waiting_task_ptr, Ordering::AcqRel);
         if !pre_start_task.is_null() {
@@ -275,12 +317,12 @@ where
     pub fn spawn_task_dependencies<D, const NF: usize>(
         &self,
         dependencies: D,
-    ) -> TaskDependencies<F, O>
+    ) -> TaskDependencies<F, FD, O>
     where
         D: ArrTaskDependenciesTrait<F, O, NF>,
     {
         // create dependencies
-        let task_dependencies_ptr: &'static TaskDependenciesCore<F, O> =
+        let task_dependencies_core_ptr: &'static TaskDependenciesCore<F, FD, O> =
             Box::leak(Box::new(TaskDependenciesCore::init(NF)));
 
         // output
@@ -296,11 +338,11 @@ where
             // create waiting task
             let waiting_task = WaitingTask {
                 id: self.id_counter.fetch_add(1, Ordering::Release),
-                task,
+                task: ExecTask::Task(task),
                 next: AtomicPtr::new(ptr::null_mut()),
                 waiting_return_ptr: return_ptr,
-                task_dependencies_core_ptr: task_dependencies_ptr,
-                task_dependencies_ptr: Box::leak(Box::new(TaskDependencies::blank())),
+                task_dependencies_core_ptr,
+                task_dependencies_ptr: Box::leak(Box::new(vec![])),
             };
 
             let waiting_task_ptr = Box::into_raw(Box::new(waiting_task));
@@ -320,17 +362,21 @@ where
 
             waiting_output.push(Waiting {
                 data_ptr: return_ptr,
-                data: None,
             });
         }
 
+        let waiting_output_leak: &'static mut Vec<Waiting<O>> = Box::leak(Box::new(waiting_output));
         TaskDependencies {
-            waiting_list: waiting_output,
-            task_dependencies_ptr: task_dependencies_ptr,
+            waiting_list: waiting_output_leak,
+            task_dependencies_ptr: task_dependencies_core_ptr,
         }
     }
 
-    pub fn spawn_task(&self, task: F) -> Waiting<O> {
+    pub fn spawn_task_fd(
+        &self,
+        task: FD,
+        task_dependencies_core_ptr: Option<&'static TaskDependenciesCore<F, FD, O>>,
+    ) -> Waiting<O> {
         // main thread only focus in swap queue, base on swap start
         // update in_task handler
         self.in_task.fetch_add(1, Ordering::SeqCst);
@@ -339,11 +385,15 @@ where
         // create waiting task
         let waiting_task = WaitingTask {
             id: self.id_counter.fetch_add(1, Ordering::Release),
-            task,
+            task: ExecTask::TaskWithDependencies(task),
             next: AtomicPtr::new(ptr::null_mut()),
             waiting_return_ptr: return_ptr,
-            task_dependencies_core_ptr: Box::leak(Box::new(TaskDependenciesCore::blank())),
-            task_dependencies_ptr: Box::leak(Box::new(TaskDependencies::blank())),
+            task_dependencies_core_ptr: if let Some(ptr) = task_dependencies_core_ptr {
+                ptr
+            } else {
+                Box::leak(Box::new(TaskDependenciesCore::blank()))
+            },
+            task_dependencies_ptr: Box::leak(Box::new(Vec::new())),
         };
 
         let waiting_task_ptr = Box::into_raw(Box::new(waiting_task));
@@ -363,7 +413,42 @@ where
 
         Waiting {
             data_ptr: return_ptr,
-            data: None,
+        }
+    }
+
+    pub fn spawn_task(&self, task: F) -> Waiting<O> {
+        // main thread only focus in swap queue, base on swap start
+        // update in_task handler
+        self.in_task.fetch_add(1, Ordering::SeqCst);
+        // create return_ptr
+        let return_ptr: &'static AtomicPtr<O> = Box::leak(Box::new(AtomicPtr::new(null_mut())));
+        // create waiting task
+        let waiting_task = WaitingTask {
+            id: self.id_counter.fetch_add(1, Ordering::Release),
+            task: ExecTask::Task(task),
+            next: AtomicPtr::new(ptr::null_mut()),
+            waiting_return_ptr: return_ptr,
+            task_dependencies_core_ptr: Box::leak(Box::new(TaskDependenciesCore::blank())),
+            task_dependencies_ptr: Box::leak(Box::new(Vec::new())),
+        };
+
+        let waiting_task_ptr = Box::into_raw(Box::new(waiting_task));
+
+        // swap start with new waiting task
+        let pre_start_task = self.swap_start.swap(waiting_task_ptr, Ordering::AcqRel);
+        if !pre_start_task.is_null() {
+            unsafe {
+                (*pre_start_task)
+                    .next
+                    .store(waiting_task_ptr, Ordering::Release);
+            }
+        } else {
+            // saving end waiting task for spanning validation in thread pool later
+            self.swap_end.store(waiting_task_ptr, Ordering::Release);
+        }
+
+        Waiting {
+            data_ptr: return_ptr,
         }
     }
 }

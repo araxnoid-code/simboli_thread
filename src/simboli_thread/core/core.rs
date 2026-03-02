@@ -1,29 +1,32 @@
 use std::sync::Arc;
 
 use crate::{
-    ListCore, OutputTrait, TaskDependencies, TaskTrait, ThreadPoolCore,
+    ArrTaskDependenciesWithDependenciesTrait, ListCore, OutputTrait, TaskDependencies, TaskTrait,
+    TaskWithDependenciesTrait, ThreadPoolCore,
     simboli_thread::list_core::{ArrTaskDependenciesTrait, Waiting},
 };
 
-pub struct SimboliThread<F, O, const N: usize, const Q: usize>
+pub struct SimboliThread<F, FD, O, const N: usize, const Q: usize>
 where
     F: TaskTrait<O> + 'static + Send,
-    O: 'static + OutputTrait,
+    FD: TaskWithDependenciesTrait<O> + Send + 'static,
+    O: 'static + OutputTrait + Send + Send,
 {
     // List Core
-    list_core: Arc<ListCore<F, O>>,
+    list_core: Arc<ListCore<F, FD, O>>,
     // thread pool Core
-    thread_pool_core: ThreadPoolCore<F, O, N, Q>,
+    thread_pool_core: ThreadPoolCore<F, FD, O, N, Q>,
 }
 
-impl<F, O, const N: usize, const Q: usize> SimboliThread<F, O, N, Q>
+impl<F, FD, O, const N: usize, const Q: usize> SimboliThread<F, FD, O, N, Q>
 where
     F: TaskTrait<O> + 'static + Send,
-    O: 'static + OutputTrait,
+    FD: TaskWithDependenciesTrait<O> + Send + 'static,
+    O: 'static + OutputTrait + Send,
 {
-    pub fn init() -> SimboliThread<F, O, N, Q> {
-        let list_core = Arc::new(ListCore::<F, O>::init());
-        let thread_pool_core = ThreadPoolCore::<F, O, N, Q>::init(list_core.clone());
+    pub fn init() -> SimboliThread<F, FD, O, N, Q> {
+        let list_core = Arc::new(ListCore::<F, FD, O>::init());
+        let thread_pool_core = ThreadPoolCore::<F, FD, O, N, Q>::init(list_core.clone());
         Self {
             list_core,
             thread_pool_core,
@@ -34,10 +37,22 @@ where
         self.list_core.spawn_task(f)
     }
 
+    pub fn spawn_task_dependencies_with_dependencies<D, const NF: usize>(
+        &self,
+        dependencies: D,
+        with_dependencies: &TaskDependencies<F, FD, O>,
+    ) -> TaskDependencies<F, FD, O>
+    where
+        D: ArrTaskDependenciesWithDependenciesTrait<FD, O, NF>,
+    {
+        self.list_core
+            .spawn_task_dependencies_with_dependencies(dependencies, &with_dependencies)
+    }
+
     pub fn spawn_task_dependencies<D, const NF: usize>(
         &self,
         dependencies: D,
-    ) -> TaskDependencies<F, O>
+    ) -> TaskDependencies<F, FD, O>
     where
         D: ArrTaskDependenciesTrait<F, O, NF>,
     {
@@ -46,11 +61,11 @@ where
 
     pub fn spawn_task_with_dependencies(
         &self,
-        task: F,
-        dependencies: TaskDependencies<F, O>,
+        task: FD,
+        dependencies: &TaskDependencies<F, FD, O>,
     ) -> Waiting<O> {
         self.list_core
-            .spawn_task_with_dependencies(task, dependencies)
+            .spawn_task_with_dependencies(task, dependencies, None)
     }
 
     /// joining threads in thread pools, does not ensure that all tasks have completed execution before the thread stops

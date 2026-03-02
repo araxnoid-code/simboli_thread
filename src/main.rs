@@ -1,7 +1,8 @@
 use std::{thread::sleep, time::Duration};
 
 use simboli_thread::{
-    ArrTaskDependenciesTrait, OutputTrait, SimboliThread, TaskDependencies, TaskTrait,
+    ArrTaskDependenciesTrait, ArrTaskDependenciesWithDependenciesTrait, OutputTrait, SimboliThread,
+    TaskTrait, TaskWithDependenciesTrait, Waiting,
 };
 
 #[derive(Debug)]
@@ -14,10 +15,8 @@ impl OutputTrait for MyOuput {}
 
 enum MyTask {
     Exec(fn() -> MyOuput),
-    WithDependencies(fn(&'static TaskDependencies<MyTask, MyOuput>) -> MyOuput),
+    WithDependencies(fn(&'static Vec<Waiting<MyOuput>>) -> MyOuput),
 }
-
-unsafe impl Send for MyTask {}
 
 impl TaskTrait<MyOuput> for MyTask {
     fn exec(&self) -> MyOuput {
@@ -26,48 +25,81 @@ impl TaskTrait<MyOuput> for MyTask {
             _ => MyOuput::None,
         }
     }
+}
 
-    // fn exec_with_dependencies<F>(
-    //     &self,
-    //     task_dependecies: &'static TaskDependencies<F, MyOuput>,
-    // ) -> MyOuput
-    // where
-    //     F: TaskTrait<MyOuput> + 'static + Send,
-    // {
-    //     MyOuput::None
-    // }
+impl TaskWithDependenciesTrait<MyOuput> for MyTask {
+    fn exec(&self, dependencies: &'static Vec<Waiting<MyOuput>>) -> MyOuput {
+        match self {
+            MyTask::WithDependencies(f) => f(dependencies),
+            MyTask::Exec(f) => f(),
+        }
+    }
+
+    fn is_with_dependencies(&self) -> bool {
+        match self {
+            MyTask::Exec(_) => false,
+            MyTask::WithDependencies(_) => true,
+        }
+    }
 }
 
 fn main() {
-    let thread_pool = SimboliThread::<MyTask, MyOuput, 2, 32>::init();
+    let thread_pool = SimboliThread::<MyTask, MyTask, MyOuput, 10, 1024>::init();
 
-    let my_dependencies = [
-        MyTask::Exec(|| {
-            sleep(Duration::from_millis(2000));
-            println!("task 1 done");
-            MyOuput::Int
-        }),
-        MyTask::Exec(|| {
-            sleep(Duration::from_millis(1000));
-            println!("task 2 done");
-            MyOuput::String
-        }),
-    ];
+    for i in 0..1000 {
+        let my_dependencies = [
+            MyTask::Exec(|| {
+                sleep(Duration::from_millis(100));
 
-    let waiting_dependencies = thread_pool.spawn_task_dependencies(my_dependencies);
+                MyOuput::Int
+            }),
+            MyTask::Exec(|| {
+                sleep(Duration::from_millis(50));
 
-    thread_pool.spawn_task_with_dependencies(
-        MyTask::Exec(|| {
-            println!("running and done");
-            MyOuput::String
-        }),
-        waiting_dependencies,
-    );
+                MyOuput::String
+            }),
+        ];
+
+        let dependencies_1 = thread_pool.spawn_task_dependencies(my_dependencies);
+
+        let other_dependencies = [
+            MyTask::WithDependencies(|dependencies| {
+                sleep(Duration::from_millis(100));
+                let task_1 = &dependencies[0].get().unwrap();
+
+                let task_2 = dependencies[1].get().unwrap();
+
+                MyOuput::String
+            }),
+            MyTask::Exec(|| {
+                sleep(Duration::from_millis(10));
+                MyOuput::String
+            }),
+        ];
+
+        let dependencies_2 = thread_pool
+            .spawn_task_dependencies_with_dependencies(other_dependencies, &dependencies_1);
+
+        thread_pool.spawn_task_with_dependencies(
+            MyTask::WithDependencies(|dependencies| {
+                let task_1 = &dependencies[0].get();
+                let task_2 = &dependencies[1].get();
+                MyOuput::String
+            }),
+            &dependencies_2,
+        );
+    }
 
     thread_pool.join();
 }
 
 impl ArrTaskDependenciesTrait<MyTask, MyOuput, 2> for [MyTask; 2] {
+    fn task_list(self) -> [MyTask; 2] {
+        self
+    }
+}
+
+impl ArrTaskDependenciesWithDependenciesTrait<MyTask, MyOuput, 2> for [MyTask; 2] {
     fn task_list(self) -> [MyTask; 2] {
         self
     }

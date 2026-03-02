@@ -12,8 +12,8 @@ use crate::{
 pub struct TaskDependenciesCore<F, FD, O>
 where
     F: TaskTrait<O> + Send + 'static,
-    FD: TaskWithDependenciesTrait<F, O> + Send + 'static,
-    O: 'static + OutputTrait,
+    FD: TaskWithDependenciesTrait<O> + Send + 'static,
+    O: 'static + OutputTrait + Send,
 {
     pub(crate) status: bool,
     pub(crate) done: AtomicBool,
@@ -25,8 +25,8 @@ where
 impl<F, FD, O> TaskDependenciesCore<F, FD, O>
 where
     F: TaskTrait<O> + Send + 'static,
-    FD: TaskWithDependenciesTrait<F, O> + Send + 'static,
-    O: 'static + OutputTrait,
+    FD: TaskWithDependenciesTrait<O> + Send + 'static,
+    O: 'static + OutputTrait + Send,
 {
     pub fn init(counter: usize) -> TaskDependenciesCore<F, FD, O> {
         Self {
@@ -52,23 +52,23 @@ where
 pub struct TaskDependencies<F, FD, O>
 where
     F: TaskTrait<O> + Send + 'static,
-    FD: TaskWithDependenciesTrait<F, O> + Send + 'static,
-    O: 'static + OutputTrait,
+    FD: TaskWithDependenciesTrait<O> + Send + 'static,
+    O: 'static + OutputTrait + Send,
 {
     pub(crate) task_dependencies_ptr: &'static TaskDependenciesCore<F, FD, O>,
-    pub waiting_list: Vec<Waiting<O>>,
+    pub waiting_list: &'static Vec<Waiting<O>>,
 }
 
 impl<F, FD, O> TaskDependencies<F, FD, O>
 where
     F: TaskTrait<O> + Send + 'static,
-    FD: TaskWithDependenciesTrait<F, O> + Send + 'static,
-    O: 'static + OutputTrait,
+    FD: TaskWithDependenciesTrait<O> + Send + 'static,
+    O: 'static + OutputTrait + Send,
 {
     pub fn blank() -> TaskDependencies<F, FD, O> {
         Self {
             task_dependencies_ptr: Box::leak(Box::new(TaskDependenciesCore::blank())),
-            waiting_list: vec![],
+            waiting_list: Box::leak(Box::new(vec![])),
         }
     }
 }
@@ -79,4 +79,12 @@ where
     O: 'static + OutputTrait,
 {
     fn task_list(self) -> [F; NF];
+}
+
+pub trait ArrTaskDependenciesWithDependenciesTrait<FD, O, const NF: usize>
+where
+    FD: TaskWithDependenciesTrait<O> + Send + 'static,
+    O: 'static + OutputTrait + Send,
+{
+    fn task_list(self) -> [FD; NF];
 }
