@@ -1,5 +1,6 @@
 use std::{
     hint::spin_loop,
+    os::fd,
     ptr::{null, null_mut},
     sync::{
         Arc,
@@ -8,12 +9,15 @@ use std::{
     thread::{self, JoinHandle},
 };
 
-use crate::{ListCore, OutputTrait, TaskTrait, WaitingTask};
+use crate::{
+    ExecTask, ListCore, OutputTrait, TaskTrait, TaskWithDependenciesTrait, Waiting, WaitingTask,
+};
 
-pub struct ThreadUnit<F, O, const N: usize>
+pub struct ThreadUnit<F, FD, O, const N: usize>
 where
     F: TaskTrait<O> + 'static + Send,
-    O: 'static + OutputTrait,
+    FD: TaskWithDependenciesTrait<O> + Send + 'static,
+    O: 'static + OutputTrait + Send,
 {
     // thread
     // // unique
@@ -21,9 +25,9 @@ where
     pub(crate) xorshift_seed: AtomicU32,
     // // engine
     pub(crate) spawn: Option<JoinHandle<()>>,
-    pub(crate) running: AtomicPtr<WaitingTask<F, O>>,
+    pub(crate) running: AtomicPtr<WaitingTask<F, FD, O>>,
     // // storage
-    pub(crate) queue: AtomicPtr<[AtomicPtr<WaitingTask<F, O>>; N]>,
+    pub(crate) queue: AtomicPtr<[AtomicPtr<WaitingTask<F, FD, O>>; N]>,
     pub(crate) batch: u32,
     pub(crate) top: AtomicUsize,
     pub(crate) bottom: AtomicUsize,
@@ -35,25 +39,26 @@ where
     // group
     pub(crate) reprt_group_handler: Arc<AtomicBool>,
     pub(crate) reprt_group_counter: AtomicUsize,
-    pub(crate) start_l_waiting_list: AtomicPtr<WaitingTask<F, O>>,
-    pub(crate) end_l_waiting_list: AtomicPtr<WaitingTask<F, O>>,
-    pub(crate) start_harvesting_group: Arc<AtomicPtr<WaitingTask<F, O>>>,
-    pub(crate) end_harvesting_group: Arc<AtomicPtr<WaitingTask<F, O>>>,
+    pub(crate) start_l_waiting_list: AtomicPtr<WaitingTask<F, FD, O>>,
+    pub(crate) end_l_waiting_list: AtomicPtr<WaitingTask<F, FD, O>>,
+    pub(crate) start_harvesting_group: Arc<AtomicPtr<WaitingTask<F, FD, O>>>,
+    pub(crate) end_harvesting_group: Arc<AtomicPtr<WaitingTask<F, FD, O>>>,
 
     // share
     // // thread_pool
     pub(crate) total_threads: usize,
-    pub(crate) pool: Arc<AtomicPtr<Vec<(Option<JoinHandle<()>>, Arc<ThreadUnit<F, O, N>>)>>>,
+    pub(crate) pool: Arc<AtomicPtr<Vec<(Option<JoinHandle<()>>, Arc<ThreadUnit<F, FD, O, N>>)>>>,
     pub(crate) reprt_handler: Arc<AtomicBool>,
 
     // // list core
-    pub(crate) list_core: Arc<ListCore<F, O>>,
+    pub(crate) list_core: Arc<ListCore<F, FD, O>>,
 }
 
-impl<F, O, const Q: usize> ThreadUnit<F, O, Q>
+impl<F, FD, O, const Q: usize> ThreadUnit<F, FD, O, Q>
 where
     F: TaskTrait<O> + 'static + Send,
-    O: 'static + OutputTrait,
+    FD: TaskWithDependenciesTrait<O> + Send + 'static,
+    O: 'static + OutputTrait + Send,
 {
     pub fn clean(&self) {
         unsafe {
@@ -82,12 +87,12 @@ where
         reprt_handler: Arc<AtomicBool>,
         join_flag: Arc<AtomicBool>,
         done_task: Arc<AtomicU64>,
-        pool: Arc<AtomicPtr<Vec<(Option<JoinHandle<()>>, Arc<ThreadUnit<F, O, Q>>)>>>,
-        list_core: Arc<ListCore<F, O>>,
+        pool: Arc<AtomicPtr<Vec<(Option<JoinHandle<()>>, Arc<ThreadUnit<F, FD, O, Q>>)>>>,
+        list_core: Arc<ListCore<F, FD, O>>,
         reprt_group_handler: Arc<AtomicBool>,
-        start_harvesting_group: Arc<AtomicPtr<WaitingTask<F, O>>>,
-        end_harvesting_group: Arc<AtomicPtr<WaitingTask<F, O>>>,
-    ) -> Result<ThreadUnit<F, O, Q>, &'static str> {
+        start_harvesting_group: Arc<AtomicPtr<WaitingTask<F, FD, O>>>,
+        end_harvesting_group: Arc<AtomicPtr<WaitingTask<F, FD, O>>>,
+    ) -> Result<ThreadUnit<F, FD, O, Q>, &'static str> {
         let mut queue_vector = Vec::with_capacity(Q);
         for _ in 0..Q {
             queue_vector.push(AtomicPtr::new(null_mut()));
@@ -188,8 +193,8 @@ where
     }
 
     pub fn reprt_thread_harvesting(&self) {
-        let start: AtomicPtr<WaitingTask<F, O>> = AtomicPtr::new(null_mut());
-        let end: AtomicPtr<WaitingTask<F, O>> = AtomicPtr::new(null_mut());
+        let start: AtomicPtr<WaitingTask<F, FD, O>> = AtomicPtr::new(null_mut());
+        let end: AtomicPtr<WaitingTask<F, FD, O>> = AtomicPtr::new(null_mut());
 
         // 2 is size of group(same reprt group)
         for i in (0..self.total_threads).step_by(2) {
@@ -201,7 +206,7 @@ where
                     .swap(null_mut(), Ordering::AcqRel);
 
                 if !group_end.is_null() {
-                    let group_start = self
+                    let group_start = group
                         .start_harvesting_group
                         .swap(null_mut(), Ordering::AcqRel);
 
@@ -215,15 +220,34 @@ where
             }
         }
 
+        // let mut count = 0;
+        // let mut task = end.load(Ordering::Acquire);
+        // if !task.is_null() {
+        //     loop {
+        //         unsafe {
+        //             spin_loop();
+        //             let next = (*task).next.load(Ordering::Acquire);
+        //             count += 1;
+        //             if next.is_null() {
+        //                 break;
+        //             }
+        //             task = next;
+        //         }
+        //     }
+        // }
+        // if count != 0 {
+        //     println!("id {} take {}", self.id, count);
+        // }
+
         self.list_core.insert_list_from_harvesting(start, end);
     }
 
     pub fn running(&self) {
         loop {
-            let status = self.harvesting();
-            if let Err(_) = status {
-                continue;
-            }
+            let _ = self.harvesting();
+            // if let Err(_) = status {
+            //     continue;
+            // }
 
             // is local queue empty?
             if self.top.load(Ordering::Acquire) >= self.bottom.load(Ordering::Acquire) {
@@ -259,16 +283,6 @@ where
                             spin_loop();
                             continue;
                         }
-                        // check, still empty or not
-                        if (*self.list_core).is_primary_list_empty() {
-                            // empty, that mean swap list its also empty
-                            // get task from harvesting
-                            self.reprt_thread_harvesting();
-                            // release representative thread
-                            (*self.reprt_handler).store(true, Ordering::SeqCst);
-                            spin_loop();
-                            continue;
-                        };
                     }
                     // get task from harvesting
                     self.reprt_thread_harvesting();
@@ -288,7 +302,7 @@ where
                     // // check twice to ensure, any threads have activities on this thread?
                     while self.threads_active.load(Ordering::SeqCst) > 0 {
                         spin_loop();
-                        continue;
+                        // continue;
                     }
 
                     let update_candidate_ptr = Box::into_raw(Box::new(list_waiting_task.list));
@@ -386,7 +400,7 @@ where
                             list_waiting_task.push(AtomicPtr::new(null_mut()));
                         }
 
-                        let mut list_waiting_task: [AtomicPtr<WaitingTask<F, O>>; Q] =
+                        let mut list_waiting_task: [AtomicPtr<WaitingTask<F, FD, O>>; Q] =
                             list_waiting_task.try_into().unwrap();
 
                         // // check every task
@@ -465,7 +479,11 @@ where
                         let task = Box::from_raw(waiting_task);
 
                         // running the task, execute the data
-                        let running = task.task.exec();
+                        let running = match &task.task {
+                            ExecTask::Task(f) => f.exec(),
+                            ExecTask::TaskWithDependencies(f) => f.exec(task.task_dependencies_ptr),
+                            _ => panic!(),
+                        };
 
                         // running the task, update return
                         let output = Box::into_raw(Box::new(running));
@@ -485,7 +503,7 @@ where
         }
     }
 
-    pub fn dependencies_handler_type_2(&self, task: Box<WaitingTask<F, O>>) -> Result<(), ()> {
+    pub fn dependencies_handler_type_2(&self, task: Box<WaitingTask<F, FD, O>>) -> Result<(), ()> {
         if task.task_dependencies_core_ptr.status {
             // update counter
             let counter = task
