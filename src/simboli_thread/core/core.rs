@@ -37,17 +37,17 @@ where
         self.list_core.spawn_task(f)
     }
 
-    pub fn spawn_task_dependencies_with_dependencies<D, const NF: usize>(
-        &self,
-        dependencies: D,
-        with_dependencies: &TaskDependencies<F, FD, O>,
-    ) -> TaskDependencies<F, FD, O>
-    where
-        D: ArrTaskDependenciesWithDependenciesTrait<FD, O, NF>,
-    {
-        self.list_core
-            .spawn_task_dependencies_with_dependencies(dependencies, &with_dependencies)
-    }
+    // pub fn spawn_task_dependencies_with_dependencies<D, const NF: usize>(
+    //     &self,
+    //     dependencies: D,
+    //     with_dependencies: &TaskDependencies<F, FD, O>,
+    // ) -> TaskDependencies<F, FD, O>
+    // where
+    //     D: ArrTaskDependenciesWithDependenciesTrait<FD, O, NF>,
+    // {
+    //     self.list_core
+    //         .spawn_task_dependencies_with_dependencies(dependencies, &with_dependencies)
+    // }
 
     pub fn spawn_task_dependencies<D, const NF: usize>(
         &self,
@@ -69,9 +69,9 @@ where
     }
 
     /// joining threads in thread pools, does not ensure that all tasks have completed execution before the thread stops
-    pub fn join_directly(self) {
-        self.thread_pool_core.join_directly();
-    }
+    // pub fn join_directly(self) {
+    //     self.thread_pool_core.join_directly();
+    // }
 
     /// join threads in thread pools, but ensure all tasks have completed execution before the thread stops
     pub fn join(self) {

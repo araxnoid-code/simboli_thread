@@ -3,7 +3,7 @@
     <b><p>Thread Pool Management</p></b>
     <p>⚙️ under development ⚙️</p>
     <b>
-        <p>Version / 0.0.1</p>
+        <p>Version / 0.0.2</p>
     </b>
 </div>
 
@@ -11,12 +11,7 @@
 `simboli_thread`, thread pool management written in rust.
 
 ## Warning
-This is just a trial project, there will most likely be a lot of bugs and there may not be any updates in the future.
-
-## Main Concept
-the main concepts used in `simboli_thread`
-
-[main_concept.md](https://github.com/araxnoid-code/simboli_thread/blob/main/main_concept.md)
+there is still a memory leak occurring and unstable.
 
 ## Changelog
 [changelog.md](https://github.com/araxnoid-code/simboli_thread/blob/main/changelog.md)
@@ -34,19 +29,65 @@ simboli_thread = "0.0.1"
 
 ### Code
 ```rust
-use simboli_thread::SimboliThread;
+use std::{thread::sleep, time::Duration};
+use simboli_thread::{OutputTrait, SimboliThread, TaskTrait, TaskWithDependenciesTrait};
+enum MyOutput {
+    Number(i32),
+    String(String),
+    None,
+}
+
+impl OutputTrait for MyOutput {}
+
+enum MyTask {
+    Exec(fn() -> MyOutput),
+    ExecWithDependencies(
+        fn(dependencies: &'static Vec<simboli_thread::Waiting<MyOutput>>) -> MyOutput,
+    ),
+}
+
+impl TaskTrait<MyOutput> for MyTask {
+    fn exec(&self) -> MyOutput {
+        match self {
+            MyTask::Exec(f) => f(),
+            _ => MyOutput::None,
+        }
+    }
+}
+
+impl TaskWithDependenciesTrait<MyOutput> for MyTask {
+    fn exec(&self, dependencies: &'static Vec<simboli_thread::Waiting<MyOutput>>) -> MyOutput {
+        match self {
+            MyTask::ExecWithDependencies(f) => f(dependencies),
+            _ => MyOutput::None,
+        }
+    }
+}
 
 fn main() {
-    // SimboliThread initialization
-    // note: SymboliThread manual annotation, namely SymboliThread<fn, number of threads in the thread pool, queue size for each thread in the thread pool>
-    //       for the SymboliThread<fn,_,_> part of fn, it's best to leave it to the compiler
-    let thread_pool = SimboliThread::<_, 8, 32>::init();
+    let thread_pool = SimboliThread::<MyTask, MyTask, MyOutput, 4, 64>::init();
 
-    thread_pool.spawn_task(|| println!("hello world"));
+    let task_1 = thread_pool.spawn_task(MyTask::Exec(|| {
+        sleep(Duration::from_millis(100));
+        MyOutput::Number(10)
+    }));
 
-    // the main thread will stop here, waiting for all threads to stop and all tasks to be completed
+    let task_2 = thread_pool.spawn_task(MyTask::Exec(|| {
+        sleep(Duration::from_millis(100));
+        MyOutput::String("done".to_string())
+    }));
+
+    // blocking
+    let task_1 = task_1.block();
+    if let Some(MyOutput::Number(number)) = task_1 {
+        println!("task_1 : {}", number)
+    }
+
+    let task_2 = task_2.block();
+    if let Some(MyOutput::String(str)) = task_2 {
+        println!("task_2 : {}", str)
+    }
+
     thread_pool.join();
-
-    println!("done!")
 }
 ```

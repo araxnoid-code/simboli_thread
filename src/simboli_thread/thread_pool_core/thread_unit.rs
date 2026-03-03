@@ -164,6 +164,9 @@ where
             unsafe {
                 let pool = &*self.pool.load(Ordering::Acquire);
                 for idx in index..index + 2 {
+                    if idx as usize >= pool.len() {
+                        break;
+                    }
                     let (_, harvesting_target) = &pool[idx as usize];
 
                     let end = harvesting_target
@@ -219,25 +222,6 @@ where
                 }
             }
         }
-
-        // let mut count = 0;
-        // let mut task = end.load(Ordering::Acquire);
-        // if !task.is_null() {
-        //     loop {
-        //         unsafe {
-        //             spin_loop();
-        //             let next = (*task).next.load(Ordering::Acquire);
-        //             count += 1;
-        //             if next.is_null() {
-        //                 break;
-        //             }
-        //             task = next;
-        //         }
-        //     }
-        // }
-        // if count != 0 {
-        //     println!("id {} take {}", self.id, count);
-        // }
 
         self.list_core.insert_list_from_harvesting(start, end);
     }

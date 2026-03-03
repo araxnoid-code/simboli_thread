@@ -1,4 +1,10 @@
 ## Changelog
+### version /0.0.2
+- perubahan pada parameter input dan parameter output pada simboli_thread
+- penambahan local waiting list untuk setiap thread
+- task scheduling menggunakan dependencies
+- penambahan phase baru yaitu harvesting
+
 ### version / 0.0.1
 - SimboliThread<fn, number of threads in the thread pool, queue size for each thread in the thread pool>
 - spawn task using spawn_task method on SimboliThread
