@@ -24,7 +24,7 @@ cargo add simboli_thread
 ```
 Or add the following line to your Cargo.toml:
 ```toml
-simboli_thread = "0.0.1"
+simboli_thread = "0.0.2"
 ```
 
 ### Code
